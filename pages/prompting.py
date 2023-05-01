@@ -31,10 +31,10 @@ API_INFO = {
         "version_id": "8312408ae32f40cd9322804accf17d50",
     },
     AI21: {
-        "user_id": "cohere",
-        "app_id": "completion",
-        "model_id": "clarifai:ai21",
-        "version_id": "1.0.0"
+        "user_id": "ai21",
+        "app_id": "complete",
+        "model_id": "complete-j2-jumbo-instruct",
+        "version_id": "7032ce1724874de4b9ac0924bf4d611f"
     },
 }
 
@@ -53,7 +53,7 @@ prompt = st.text_area(
     "You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow."
 )
 
-model_names = [OPENAI]
+model_names = [OPENAI, AI21]
 
 models = st.multiselect("Select the model(s) you want to use:", model_names)
 
@@ -252,12 +252,11 @@ inp = st.text_input(
     "Try out your new workflow by providing some input:",
     help="This will be used as the input to the {input} placeholder in your prompt template.")
 
-if inp:
+if prompt and models and inp:
 
+  st.header("Completions:")
   completions = []
   for workflow in workflows:
-    st.write(workflow)
-
     if DEBUG:
       prefix_prediction = run_model(inp, prefix_model)
       st.write("Prefix:")
@@ -268,7 +267,6 @@ if inp:
       st.json(json_format.MessageToDict(suffix_prediction, preserving_proto_field_name=True))
 
     prediction = run_workflow(inp, workflow)
-    st.header("Completion:")
     model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
     # /versions/{workflow.nodes[2].model.model_version.id}"
     st.write(f"Completion from {model_url}:")
