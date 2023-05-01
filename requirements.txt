@@ -1,2 +1,2 @@
-clarifai==9.3.3
-streamlit==1.21.0
+clarifai==9.3.4
+streamlit==1.22.0
