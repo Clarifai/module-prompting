@@ -1,5 +1,5 @@
 ![Clarifai logo](https://www.clarifai.com/hs-fs/hubfs/logo/Clarifai/clarifai-740x150.png?width=240)
 
-# Clarifai App Module Template
+# Clarifai Prompting Module
 
-This is a template repository to make it easy to get started creating a UI module with Clarifai.
+This is the start of a module to help with prompting.
