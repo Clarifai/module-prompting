@@ -111,25 +111,6 @@ def get_user():
 user = get_user()
 caller_id = user.id
 
-# with st.form("prompt-form"):
-qp = st.experimental_get_query_params()
-prompt = ""
-if "prompt" in qp:
-  prompt = qp["prompt"][0]
-prompt = st.text_area(
-    "Enter your prompt template to test out here:",
-    placeholder="Here is an example with {input} in the middle. Continue generating ",
-    value=prompt,
-    help=
-    "You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow."
-)
-
-model_names = [OPENAI, COHERE, AI21_A, AI21_B, AI21_C, AI21_D, AI21_E]
-
-models = st.multiselect("Select the model(s) you want to use:", model_names)
-
-# button = st.form_submit_button("Create Workflow")
-
 
 def create_prompt_model(model_id, prompt, position):
   if position not in ["PREFIX", "SUFFIX"]:
@@ -364,6 +345,41 @@ def get_text(url):
   return response.text
 
 
+response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
+st.header("Most recently Entered Prompts:")
+st.markdown("Hover to copy and try them out yourself!")
+previous_prompts = []
+cols = cycle(st.columns(3))
+for hit in response.hits:
+  txt = get_text(hit.input.data.text.url)
+  previous_prompts.append({
+      "prompt": txt,
+  })
+  container = next(cols).container()
+  meta = json_format.MessageToDict(hit.input.data.metadata)
+  caller_id = meta.get('caller', '')
+  container.subheader(f"Prompt (user: {caller_id})", anchor=False)
+  container.code(txt)  # metric(label="Prompt", value=txt)
+
+# with st.form("prompt-form"):
+qp = st.experimental_get_query_params()
+prompt = ""
+if "prompt" in qp:
+  prompt = qp["prompt"][0]
+prompt = st.text_area(
+    "Enter your prompt template to test out here:",
+    placeholder="Here is an example with {input} in the middle. Continue generating ",
+    value=prompt,
+    help=
+    "You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow."
+)
+
+model_names = [OPENAI, COHERE, AI21_A, AI21_B, AI21_C, AI21_D, AI21_E]
+
+models = st.multiselect("Select the model(s) you want to use:", model_names)
+
+# button = st.form_submit_button("Create Workflow")
+
 workflows = []
 if prompt and models:
 
@@ -465,22 +481,6 @@ if prompt and models and inp:
           "caller": caller_id,
           "tags": ["input"]
       })
-
-  response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
-  st.header("Most recently Entered Prompts:")
-  st.markdown("Hover to copy and try them out yourself!")
-  previous_prompts = []
-  cols = cycle(st.columns(3))
-  for hit in response.hits:
-    txt = get_text(hit.input.data.text.url)
-    previous_prompts.append({
-        "prompt": txt,
-    })
-    container = next(cols).container()
-    meta = json_format.MessageToDict(hit.input.data.metadata)
-    caller_id = meta.get('caller', '')
-    container.subheader(f"Prompt (user: {caller_id})", anchor=False)
-    container.code(txt)  # metric(label="Prompt", value=txt)
 
   # Cleanup so we don't have tons of junk in this app
   for workflow in workflows:
