@@ -13,16 +13,20 @@ ClarifaiStreamlitCSS.insert_default_css(st)
 
 DEBUG = False
 
-COHERE = "cohere"
-OPENAI = "openai"
-AI21 = "ai21"
+COHERE = "cohere: generate-base"
+OPENAI = "openai: gpt-3.5-turbo"
+AI21_A = "ai21: j2-jumbo-instruct"
+AI21_B = "ai21: j2-grande-instruct"
+AI21_C = "ai21: j2-jumbo"
+AI21_D = "ai21: j2-grande"
+AI21_E = "ai21: j2-large"
 
 API_INFO = {
     COHERE: {
         "user_id": "cohere",
-        "app_id": "completion",
-        "model_id": "clarifai:cohere",
-        "version_id": "1.0.0"
+        "app_id": "generate",
+        "model_id": "generate-base",
+        "version_id": "07bf79a08a45492d8be5c49085244f1c"
     },
     OPENAI: {
         "user_id": "openai",
@@ -30,13 +34,47 @@ API_INFO = {
         "model_id": "chatgpt-3_5-turbo",
         "version_id": "8312408ae32f40cd9322804accf17d50",
     },
-    AI21: {
+    AI21_A: {
         "user_id": "ai21",
         "app_id": "complete",
-        "model_id": "complete-j2-jumbo-instruct",
-        "version_id": "7032ce1724874de4b9ac0924bf4d611f"
+        "model_id": "j2-jumbo-instruct",
+        "version_id": "2ca88c8e94e14b02bb20c39bc74ffbfe"
+    },
+    AI21_B: {
+        "user_id": "ai21",
+        "app_id": "complete",
+        "model_id": "j2-grande-instruct",
+        "version_id": "2910ac4666e444e79ea70bb960a293ef"
+    },
+    AI21_C: {
+        "user_id": "ai21",
+        "app_id": "complete",
+        "model_id": "j2-jumbo",
+        "version_id": "80dbb77f961e4840a84bea93ac19c242"
+    },
+    AI21_D: {
+        "user_id": "ai21",
+        "app_id": "complete",
+        "model_id": "j2-grande",
+        "version_id": "722f731b43bb46daa434702c558576d2"
+    },
+    AI21_E: {
+        "user_id": "ai21",
+        "app_id": "complete",
+        "model_id": "j2-large",
+        "version_id": "22d20fad4d96443cb9f782eec5178f2b"
     },
 }
+
+Examples = [
+    {
+        "title": "Snoop Doog Summary",
+        "template": """Rewrite the following paragraph as a rap by Snoop Dogg.
+{input}
+""",
+        "categories": ["Long Form", "Creative"],
+    },
+]
 
 # This must be within the display() function.
 auth = ClarifaiAuthHelper.from_streamlit(st)
@@ -53,7 +91,7 @@ prompt = st.text_area(
     "You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow."
 )
 
-model_names = [OPENAI, AI21]
+model_names = [OPENAI, COHERE, AI21_A, AI21_B, AI21_C, AI21_D, AI21_E]
 
 models = st.multiselect("Select the model(s) you want to use:", model_names)
 
