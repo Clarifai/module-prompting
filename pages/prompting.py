@@ -1,5 +1,6 @@
 import hashlib
 import uuid
+from itertools import cycle
 
 import requests
 import streamlit as st
@@ -13,6 +14,14 @@ from google.protobuf import json_format
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
+
+
+def local_css(file_name):
+  with open(file_name) as f:
+    st.markdown('<style>{}</style>'.format(f.read()), unsafe_allow_html=True)
+
+
+local_css("./style.css")
 
 DEBUG = False
 
@@ -90,10 +99,27 @@ userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
 st.title("Test out a prompt template")
 
+
+def get_user():
+  req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
+  response = stub.GetUser(req)
+  if response.status.code != status_code_pb2.SUCCESS:
+    raise Exception("GetUser request failed: %r" % response)
+  return response.user
+
+
+user = get_user()
+caller_id = user.id
+
 # with st.form("prompt-form"):
+qp = st.experimental_get_query_params()
+prompt = ""
+if "prompt" in qp:
+  prompt = qp["prompt"][0]
 prompt = st.text_area(
     "Enter your prompt template to test out here:",
     placeholder="Here is an example with {input} in the middle. Continue generating ",
+    value=prompt,
     help=
     "You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow."
 )
@@ -221,6 +247,7 @@ def delete_workflow(workflow):
     raise Exception("DeleteWorkflows request failed: %r" % response)
 
 
+@st.cache_resource
 def run_workflow(input_text, workflow):
   response = stub.PostWorkflowResults(
       service_pb2.PostWorkflowResultsRequest(
@@ -240,6 +267,7 @@ def run_workflow(input_text, workflow):
   return response
 
 
+@st.cache_resource
 def run_model(input_text, model):
   response = stub.PostModelOutputs(
       service_pb2.PostModelOutputsRequest(
@@ -259,6 +287,7 @@ def run_model(input_text, model):
   return response
 
 
+@st.cache_resource
 def post_input(txt, concepts=[], metadata=None):
   """ Posts input to the API and returns the response. """
   id = hashlib.md5(txt.encode("utf-8")).hexdigest()
@@ -380,7 +409,11 @@ if prompt and models and inp:
     for c in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
       post_concept(c)
 
-  api_input = post_input(prompt, concepts=[PROMPT_CONCEPT], metadata={"tags": ["prompt"]})
+  api_input = post_input(
+      prompt, concepts=[PROMPT_CONCEPT], metadata={
+          "tags": ["prompt"],
+          "caller": caller_id
+      })
 
   st.header("Completions:")
   completions = []
@@ -410,6 +443,7 @@ if prompt and models and inp:
             "input_id": api_input.id,
             "tags": ["completion"],
             "model": model_url_with_version,
+            "caller": caller_id,
         })
     completions.append({
         "model":
@@ -422,18 +456,31 @@ if prompt and models and inp:
 
   st.dataframe(completions)
 
-  # Add the prompt and input as an inputs in the app.
-  post_input(inp, concepts=[INPUT_CONCEPT], metadata={"input_id": api_input.id, "tags": ["input"]})
+  # Add the input as an inputs in the app.
+  post_input(
+      inp,
+      concepts=[INPUT_CONCEPT],
+      metadata={
+          "input_id": api_input.id,
+          "caller": caller_id,
+          "tags": ["input"]
+      })
 
-  response = search_inputs(concepts=[PROMPT_CONCEPT])
+  response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
+  st.header("Most recently Entered Prompts:")
+  st.markdown("Hover to copy and try them out yourself!")
   previous_prompts = []
+  cols = cycle(st.columns(3))
   for hit in response.hits:
     txt = get_text(hit.input.data.text.url)
     previous_prompts.append({
         "prompt": txt,
     })
-  st.header("Most recently Entered Prompts:")
-  st.dataframe(previous_prompts)
+    container = next(cols).container()
+    meta = json_format.MessageToDict(hit.input.data.metadata)
+    caller_id = meta.get('caller', '')
+    container.subheader(f"Prompt (user: {caller_id})", anchor=False)
+    container.code(txt)  # metric(label="Prompt", value=txt)
 
   # Cleanup so we don't have tons of junk in this app
   for workflow in workflows:
