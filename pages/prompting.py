@@ -97,7 +97,10 @@ auth = ClarifaiAuthHelper.from_streamlit(st)
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
-st.title("Test out a prompt template")
+
+st.markdown(
+    "<h1 style='text-align: center; color: black;'>Prompt Engineering Toolbox</h1>",
+    unsafe_allow_html=True)
 
 
 def get_user():
@@ -346,8 +349,15 @@ def get_text(url):
 
 
 response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
-st.header("Most recently Entered Prompts:")
-st.markdown("Hover to copy and try them out yourself!")
+# st.header("Most recently Entered Prompts:")
+st.markdown(
+    "<h2 style='text-align: center; color: #667085;'>Recent prompts from others</h2>",
+    unsafe_allow_html=True)
+
+st.markdown(
+    "<div style='text-align: center;'>Hover to copy and try them out yourself!</div>",
+    unsafe_allow_html=True)
+
 previous_prompts = []
 cols = cycle(st.columns(3))
 for hit in response.hits:
@@ -360,7 +370,7 @@ for hit in response.hits:
   cid = meta.get('caller', 'zeiler')
   if cid == '':
     cid = 'zeiler'
-  container.subheader(f"Prompt (user: {cid})", anchor=False)
+  container.subheader(f"Prompt ({cid})", anchor=False)
   container.code(txt)  # metric(label="Prompt", value=txt)
 
 # with st.form("prompt-form"):
@@ -368,6 +378,7 @@ qp = st.experimental_get_query_params()
 prompt = ""
 if "prompt" in qp:
   prompt = qp["prompt"][0]
+st.subheader("Test out new prompt templates with various LLM models")
 prompt = st.text_area(
     "Enter your prompt template to test out here:",
     placeholder="Here is an example with {input} in the middle. Continue generating ",
