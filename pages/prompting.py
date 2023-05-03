@@ -357,8 +357,10 @@ for hit in response.hits:
   })
   container = next(cols).container()
   meta = json_format.MessageToDict(hit.input.data.metadata)
-  caller_id = meta.get('caller', '')
-  container.subheader(f"Prompt (user: {caller_id})", anchor=False)
+  cid = meta.get('caller', 'zeiler')
+  if cid == '':
+    cid = 'zeiler'
+  container.subheader(f"Prompt (user: {cid})", anchor=False)
   container.code(txt)  # metric(label="Prompt", value=txt)
 
 # with st.form("prompt-form"):
