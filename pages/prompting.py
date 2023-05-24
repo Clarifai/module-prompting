@@ -54,31 +54,31 @@ API_INFO = {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-jumbo-instruct",
-        "version_id": "2ca88c8e94e14b02bb20c39bc74ffbfe",
+        "version_id": "50c2ff53be11407f9c6d4cfca2af1dff",
     },
     AI21_B: {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-grande-instruct",
-        "version_id": "2910ac4666e444e79ea70bb960a293ef",
+        "version_id": "d4382924b3f04e5ba4efed1bbf04ead1",
     },
     AI21_C: {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-jumbo",
-        "version_id": "80dbb77f961e4840a84bea93ac19c242",
+        "version_id": "9bb740d588d743228368a53ac61a3768",
     },
     AI21_D: {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-grande",
-        "version_id": "722f731b43bb46daa434702c558576d2",
+        "version_id": "60c292033a4643609b9c553a45f34f24",
     },
     AI21_E: {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-large",
-        "version_id": "22d20fad4d96443cb9f782eec5178f2b",
+        "version_id": "27122459e3eb44eb9f872afee94d71ae",
     },
 }
 
@@ -174,7 +174,7 @@ def create_workflow(prefix_model, suffix_model, selected_llm):
         user_app_id=userDataObject,
         workflows=[
             resources_pb2.Workflow(
-                id="test-workflow-" + uuid.uuid4().hex[:10],
+                id=f"test-workflow-{API_INFO[selected_llm]['model_id']}" + uuid.uuid4().hex[:3],
                 nodes=[
                     resources_pb2.WorkflowNode(
                         id="prefix",
@@ -524,7 +524,10 @@ else:
             metadata={"tags": ["prompt"], "caller": caller_id},
         )
 
-        st.header("Completions:")
+        st.markdown(
+            "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
+            unsafe_allow_html=True
+        )
         completions = []
         for workflow in workflows:
             if DEBUG:
@@ -543,7 +546,7 @@ else:
                         suffix_prediction, preserving_proto_field_name=True
                     )
                 )
-
+            st.write(inp)
             prediction = run_workflow(inp, workflow)
             model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
             # /versions/{workflow.nodes[2].model.model_version.id}"
