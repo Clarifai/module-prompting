@@ -472,6 +472,7 @@ else:
             st.error("You need to select at least one model.")
             st.stop()
 
+        # Get all text before and after the placeholder
         prefix = prompt[: prompt.find("{input}")]
         suffix = prompt[prompt.find("{input}") + len("{input}") :]
 
@@ -511,9 +512,13 @@ else:
 
     if prompt and models and inp:
         concepts = list_concepts()
-        if len(concepts) != 3:
-            for c in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
-                post_concept(c)
+        concept_ids = [c.id for c in concepts]
+        for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+            if concept.id not in concept_ids:
+                post_concept(concept)
+        # if len(concepts) != 3:
+        #     for c in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+        #         post_concept(c)
 
         api_input = post_input(
             prompt,
