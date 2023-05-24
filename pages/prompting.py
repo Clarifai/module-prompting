@@ -516,9 +516,7 @@ else:
         for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
             if concept.id not in concept_ids:
                 post_concept(concept)
-        # if len(concepts) != 3:
-        #     for c in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
-        #         post_concept(c)
+                st.success(f"Added {concept.id} concept")
 
         api_input = post_input(
             prompt,
