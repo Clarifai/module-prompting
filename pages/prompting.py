@@ -99,7 +99,7 @@ userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
 
 st.markdown(
-    "<h1 style='text-align: center; color: black;'>Prompt Engineering Toolbox</h1>",
+    "<h1 style='text-align: center; color: black;'>LLM Comparing Toolbox 🧰</h1>",
     unsafe_allow_html=True,
 )
 
@@ -250,6 +250,8 @@ def delete_workflow(workflow):
     )
     if response.status.code != status_code_pb2.SUCCESS:
         raise Exception("DeleteWorkflows request failed: %r" % response)
+    else:
+        st.success(f"Workflow {workflow.id} deleted")
 
 
 @st.cache_resource
@@ -415,7 +417,6 @@ if PROMPT_CONCEPT.id not in [c.id for c in concepts]:
 else:
     prompt_search_response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
     completion_search_response = search_inputs(concepts=[COMPLETION_CONCEPT], per_page=12)
-    # TODO: Possibly show also user input in previous prompts. Would have to add metadata to user input when posting.
     user_input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
     # st.json(json_format.MessageToDict(completion_search_response))
     
@@ -638,13 +639,12 @@ else:
             completions.append(
                 {
                     "model": model_url,
-                    "completion": completion,
+                    "completion": completion.strip(),
                     "input_id": f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
                 }
             )
 
         st.dataframe(completions)
-
 
         # Cleanup so we don't have tons of junk in this app
         for workflow in workflows:
