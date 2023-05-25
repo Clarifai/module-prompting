@@ -174,7 +174,7 @@ def create_workflow(prefix_model, suffix_model, selected_llm):
         user_app_id=userDataObject,
         workflows=[
             resources_pb2.Workflow(
-                id=f"test-workflow-{API_INFO[selected_llm]['model_id']}" + uuid.uuid4().hex[:3],
+                id=f"test-workflow-{API_INFO[selected_llm]['user_id']}-{API_INFO[selected_llm]['model_id']}-" + uuid.uuid4().hex[:3],
                 nodes=[
                     resources_pb2.WorkflowNode(
                         id="prefix",
@@ -390,7 +390,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
             )
         )
     response = stub.PostAnnotationsSearches(req)
-    st.write(response)
+    # st.write(response)
 
     if response.status.code != status_code_pb2.SUCCESS:
         raise Exception("SearchInputs request failed: %r" % response)
@@ -413,9 +413,12 @@ if PROMPT_CONCEPT.id not in [c.id for c in concepts]:
         post_concept(PROMPT_CONCEPT)
         st.experimental_rerun()
 else:
-    pass
-    response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
-    # st.header("Most recently Entered Prompts:")
+    prompt_search_response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
+    completion_search_response = search_inputs(concepts=[COMPLETION_CONCEPT], per_page=12)
+    # TODO: Possibly show also user input in previous prompts. Would have to add metadata to user input when posting.
+    user_input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
+    # st.json(json_format.MessageToDict(completion_search_response))
+    
     st.markdown(
         "<h2 style='text-align: center; color: #667085;'>Recent prompts from others</h2>",
         unsafe_allow_html=True,
@@ -426,40 +429,94 @@ else:
         unsafe_allow_html=True,
     )
 
+
+    def get_next_completion(completion_search_response, user_input_search_response, input_id):
+        for completion_hit in completion_search_response.hits:
+            if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
+                for user_input_hit in user_input_search_response.hits:
+                    if completion_hit.input.data.metadata.fields["user_input_id"].string_value == user_input_hit.input.id:
+                        # return completion_hit, user_input_hit
+                        yield completion_hit.input, user_input_hit.input
+
+
     previous_prompts = []
+    
+    # Check if gen dict is in session state
+    if "completion_gen_dict" not in st.session_state:
+        print('completion_gen_dict: ')
+        st.session_state.completion_gen_dict = {}
+        st.session_state.first_run = True
+        
+    completion_gen_dict = st.session_state.completion_gen_dict
+    
     cols = cycle(st.columns(3))
-    for hit in response.hits:
-        txt = get_text(hit.input.data.text.url)
+    for idx, prompt_hit in enumerate(prompt_search_response.hits):
+        txt = get_text(prompt_hit.input.data.text.url)
         previous_prompts.append(
             {
                 "prompt": txt,
             }
         )
         container = next(cols).container()
-        meta = json_format.MessageToDict(hit.input.data.metadata)
-        cid = meta.get("caller", "zeiler")
-        if cid == "":
-            cid = "zeiler"
-        container.subheader(f"Prompt ({cid})", anchor=False)
+        metadata = json_format.MessageToDict(prompt_hit.input.data.metadata)
+        caller_id = metadata.get("caller", "zeiler")
+        if caller_id == "":
+            caller_id = "zeiler"
+            
+
+        if len(completion_gen_dict) < len(prompt_search_response.hits):
+            completion_gen_dict[prompt_hit.input.id] = get_next_completion(completion_search_response, user_input_search_response, prompt_hit.input.id)
+
+                
+        container.subheader(f"Prompt ({caller_id})", anchor=False)
         container.code(txt)  # metric(label="Prompt", value=txt)
 
-    # with st.form("prompt-form"):
+        container.subheader("Answer", anchor=False)
+            
+        # if st.session_state.first_run and len(completion_gen_dict) < len(prompt_search_response.hits):
+        #     st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
+        #     st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
+            
+        # elif st.session_state.first_run and len(completion_gen_dict) == len(prompt_search_response.hits):
+        #     st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
+        #     st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
+        #     st.session_state.first_run = False
+
+        st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
+        st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"] = container.empty()
+        st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
+        
+        if container.button("Next", key=prompt_hit.input.id):
+            try:
+                completion_input, user_input = next(completion_gen_dict[prompt_hit.input.id])
+                
+                completion_text = get_text(completion_input.data.text.url)
+                user_input_text = get_text(user_input.data.text.url)
+                model_url = completion_input.data.metadata.fields["model"].string_value
+                
+                st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"].markdown(f"Generated by {model_url}")
+                st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"].markdown(f"**Input**: {user_input_text}")
+                st.session_state[f"placeholder_completion{prompt_hit.input.id}"].markdown(completion_text)
+            except StopIteration:
+                st.warning("No more completions available.")
+        
     qp = st.experimental_get_query_params()
     prompt = ""
     if "prompt" in qp:
         prompt = qp["prompt"][0]
+        
     st.subheader("Test out new prompt templates with various LLM models")
+
+    model_names = [OPENAI, COHERE, AI21_A, AI21_B, AI21_C, AI21_D, AI21_E]
+    models = st.multiselect("Select the model(s) you want to use:", model_names)
+
+
     prompt = st.text_area(
         "Enter your prompt template to test out here:",
-        placeholder="Here is an example with {input} in the middle. Continue generating ",
+        placeholder="Explain {input} to a 5 yeard old.",
         value=prompt,
         help="You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow.",
     )
-
-    model_names = [OPENAI, COHERE, AI21_A, AI21_B, AI21_C, AI21_D, AI21_E]
-
-    models = st.multiselect("Select the model(s) you want to use:", model_names)
-
     # button = st.form_submit_button("Create Workflow")
 
     workflows = []
@@ -504,6 +561,7 @@ else:
         st.success(
             f"Created {len(workflows)} workflows! Now ready to test it out by inputing some text below"
         )
+        # st.write(workflows)
 
     inp = st.text_input(
         "Try out your new workflow by providing some input:",
@@ -518,12 +576,18 @@ else:
                 post_concept(concept)
                 st.success(f"Added {concept.id} concept")
 
-        api_input = post_input(
+        prompt_input = post_input(
             prompt,
             concepts=[PROMPT_CONCEPT],
             metadata={"tags": ["prompt"], "caller": caller_id},
         )
 
+        # Add the input as an inputs in the app.
+        user_input = post_input(
+            inp,
+            concepts=[INPUT_CONCEPT],
+            metadata={"input_id": prompt_input.id, "caller": caller_id, "tags": ["input"]},
+        )
         st.markdown(
             "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
             unsafe_allow_html=True
@@ -560,11 +624,12 @@ else:
                 )
             completion = prediction.results[0].outputs[2].data.text.raw
             st.info(completion)
-            completion_input = post_input(
+            complete_input = post_input(
                 completion,
                 concepts=[COMPLETION_CONCEPT],
                 metadata={
-                    "input_id": api_input.id,
+                    "input_id": prompt_input.id,
+                    "user_input_id": user_input.id,
                     "tags": ["completion"],
                     "model": model_url_with_version,
                     "caller": caller_id,
@@ -574,18 +639,12 @@ else:
                 {
                     "model": model_url,
                     "completion": completion,
-                    "input_id": f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{completion_input.id}",
+                    "input_id": f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
                 }
             )
 
         st.dataframe(completions)
 
-        # Add the input as an inputs in the app.
-        post_input(
-            inp,
-            concepts=[INPUT_CONCEPT],
-            metadata={"input_id": api_input.id, "caller": caller_id, "tags": ["input"]},
-        )
 
         # Cleanup so we don't have tons of junk in this app
         for workflow in workflows:
