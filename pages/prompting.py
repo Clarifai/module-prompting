@@ -29,9 +29,9 @@ COHERE = "cohere: generate-base"
 OPENAI = "openai: gpt-3.5-turbo"
 AI21_A = "ai21: j2-jumbo-instruct"
 AI21_B = "ai21: j2-grande-instruct"
-AI21_C = "ai21: j2-jumbo"
-AI21_D = "ai21: j2-grande"
-AI21_E = "ai21: j2-large"
+# AI21_C = "ai21: j2-jumbo"
+# AI21_D = "ai21: j2-grande"
+# AI21_E = "ai21: j2-large"
 
 PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
 INPUT_CONCEPT = resources_pb2.Concept(id="input", value=1.0)
@@ -62,24 +62,24 @@ API_INFO = {
         "model_id": "j2-grande-instruct",
         "version_id": "d4382924b3f04e5ba4efed1bbf04ead1",
     },
-    AI21_C: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-jumbo",
-        "version_id": "9bb740d588d743228368a53ac61a3768",
-    },
-    AI21_D: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-grande",
-        "version_id": "60c292033a4643609b9c553a45f34f24",
-    },
-    AI21_E: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-large",
-        "version_id": "27122459e3eb44eb9f872afee94d71ae",
-    },
+    # AI21_C: {
+    #     "user_id": "ai21",
+    #     "app_id": "complete",
+    #     "model_id": "j2-jumbo",
+    #     "version_id": "9bb740d588d743228368a53ac61a3768",
+    # },
+    # AI21_D: {
+    #     "user_id": "ai21",
+    #     "app_id": "complete",
+    #     "model_id": "j2-grande",
+    #     "version_id": "60c292033a4643609b9c553a45f34f24",
+    # },
+    # AI21_E: {
+    #     "user_id": "ai21",
+    #     "app_id": "complete",
+    #     "model_id": "j2-large",
+    #     "version_id": "27122459e3eb44eb9f872afee94d71ae",
+    # },
 }
 
 Examples = [
