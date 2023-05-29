@@ -251,7 +251,7 @@ def delete_workflow(workflow):
     if response.status.code != status_code_pb2.SUCCESS:
         raise Exception("DeleteWorkflows request failed: %r" % response)
     else:
-        st.success(f"Workflow {workflow.id} deleted")
+        print(f"Workflow {workflow.id} deleted")
 
 
 @st.cache_resource
@@ -299,6 +299,8 @@ def run_model(input_text, model):
     )
     if response.status.code != status_code_pb2.SUCCESS:
         raise Exception("PostModelOutputs request failed: %r" % response)
+    else:
+        print(f"Model {model.id} ran successfully")
 
     if DEBUG:
         st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
@@ -431,12 +433,11 @@ else:
     )
 
 
-    def get_next_completion(completion_search_response, user_input_search_response, input_id):
+    def create_next_completion_gen(completion_search_response, user_input_search_response, input_id):
         for completion_hit in completion_search_response.hits:
             if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
                 for user_input_hit in user_input_search_response.hits:
                     if completion_hit.input.data.metadata.fields["user_input_id"].string_value == user_input_hit.input.id:
-                        # return completion_hit, user_input_hit
                         yield completion_hit.input, user_input_hit.input
 
 
@@ -466,23 +467,15 @@ else:
             
 
         if len(completion_gen_dict) < len(prompt_search_response.hits):
-            completion_gen_dict[prompt_hit.input.id] = get_next_completion(completion_search_response, user_input_search_response, prompt_hit.input.id)
+            completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(completion_search_response, user_input_search_response, prompt_hit.input.id)
 
                 
         container.subheader(f"Prompt ({caller_id})", anchor=False)
         container.code(txt)  # metric(label="Prompt", value=txt)
 
         container.subheader("Answer", anchor=False)
-            
-        # if st.session_state.first_run and len(completion_gen_dict) < len(prompt_search_response.hits):
-        #     st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
-        #     st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
-            
-        # elif st.session_state.first_run and len(completion_gen_dict) == len(prompt_search_response.hits):
-        #     st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
-        #     st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
-        #     st.session_state.first_run = False
 
+        # Create persistent placeholders to update when user clicks next
         st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
         st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"] = container.empty()
         st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
@@ -499,12 +492,13 @@ else:
                 st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"].markdown(f"**Input**: {user_input_text}")
                 st.session_state[f"placeholder_completion{prompt_hit.input.id}"].markdown(completion_text)
             except StopIteration:
-                st.warning("No more completions available.")
+                completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(completion_search_response, user_input_search_response, prompt_hit.input.id)
+                st.warning("No more completions available. Starting from the beginning.")
         
-    qp = st.experimental_get_query_params()
+    query_params = st.experimental_get_query_params()
     prompt = ""
-    if "prompt" in qp:
-        prompt = qp["prompt"][0]
+    if "prompt" in query_params:
+        prompt = query_params["prompt"][0]
         
     st.subheader("Test out new prompt templates with various LLM models")
 
@@ -518,7 +512,6 @@ else:
         value=prompt,
         help="You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow.",
     )
-    # button = st.form_submit_button("Create Workflow")
 
     workflows = []
     if prompt and models:
@@ -611,20 +604,21 @@ else:
                         suffix_prediction, preserving_proto_field_name=True
                     )
                 )
-            st.write(inp)
+            container = st.container()
+            container.write(prompt.replace("{input}",inp))
             prediction = run_workflow(inp, workflow)
             model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
             # /versions/{workflow.nodes[2].model.model_version.id}"
             model_url_with_version = (
                 f"{model_url}/versions/{workflow.nodes[2].model.model_version.id}"
             )
-            st.write(f"Completion from {model_url}:")
+            container.write(f"Completion from {model_url}:")
             if DEBUG:
                 st.json(
                     json_format.MessageToDict(prediction, preserving_proto_field_name=True)
                 )
             completion = prediction.results[0].outputs[2].data.text.raw
-            st.info(completion)
+            container.info(completion)
             complete_input = post_input(
                 completion,
                 concepts=[COMPLETION_CONCEPT],
