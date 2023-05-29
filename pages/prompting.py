@@ -502,7 +502,7 @@ else:
         
     st.subheader("Test out new prompt templates with various LLM models")
 
-    model_names = [OPENAI, COHERE, AI21_A, AI21_B, AI21_C, AI21_D, AI21_E]
+    model_names = [OPENAI, COHERE, AI21_A, AI21_B] #, AI21_C, AI21_D, AI21_E]
     models = st.multiselect("Select the model(s) you want to use:", model_names)
 
 
