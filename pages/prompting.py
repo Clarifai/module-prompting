@@ -48,7 +48,7 @@ API_INFO = {
         "user_id": "openai",
         "app_id": "chat_completion",
         "model_id": "chatgpt-3_5-turbo",
-        "version_id": "8312408ae32f40cd9322804accf17d50",
+        "version_id": "6b5ffe87f0a94c8e9c45aea0e15e3a99",
     },
     AI21_A: {
         "user_id": "ai21",
@@ -105,9 +105,7 @@ st.markdown(
 
 
 def get_user():
-    req = service_pb2.GetUserRequest(
-        user_app_id=resources_pb2.UserAppIDSet(user_id="me")
-    )
+    req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
     response = stub.GetUser(req)
     if response.status.code != status_code_pb2.SUCCESS:
         raise Exception("GetUser request failed: %r" % response)
@@ -140,9 +138,7 @@ def create_prompt_model(model_id, prompt, position):
     req = service_pb2.PostModelVersionsRequest(
         user_app_id=userDataObject,
         model_id=model_id,
-        model_versions=[
-            resources_pb2.ModelVersion(output_info=resources_pb2.OutputInfo())
-        ],
+        model_versions=[resources_pb2.ModelVersion(output_info=resources_pb2.OutputInfo())],
     )
     params = json_format.ParseDict(
         {
@@ -174,7 +170,8 @@ def create_workflow(prefix_model, suffix_model, selected_llm):
         user_app_id=userDataObject,
         workflows=[
             resources_pb2.Workflow(
-                id=f"test-workflow-{API_INFO[selected_llm]['user_id']}-{API_INFO[selected_llm]['model_id']}-" + uuid.uuid4().hex[:3],
+                id=f"test-workflow-{API_INFO[selected_llm]['user_id']}-{API_INFO[selected_llm]['model_id']}-"
+                + uuid.uuid4().hex[:3],
                 nodes=[
                     resources_pb2.WorkflowNode(
                         id="prefix",
@@ -410,9 +407,7 @@ def get_text(url):
 # Check if prompt is a concept in the user's app
 concepts = list_concepts()
 if PROMPT_CONCEPT.id not in [c.id for c in concepts]:
-    st.warning(
-        "The prompt concept is not in your app. Please add it by clicking the button below."
-    )
+    st.warning("The prompt concept is not in your app. Please add it by clicking the button below.")
     if st.button("Add prompt concept"):
         post_concept(PROMPT_CONCEPT)
         st.experimental_rerun()
@@ -421,7 +416,7 @@ else:
     completion_search_response = search_inputs(concepts=[COMPLETION_CONCEPT], per_page=12)
     user_input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
     # st.json(json_format.MessageToDict(completion_search_response))
-    
+
     st.markdown(
         "<h2 style='text-align: center; color: #667085;'>Recent prompts from others</h2>",
         unsafe_allow_html=True,
@@ -432,25 +427,25 @@ else:
         unsafe_allow_html=True,
     )
 
-
     def create_next_completion_gen(completion_search_response, user_input_search_response, input_id):
         for completion_hit in completion_search_response.hits:
             if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
                 for user_input_hit in user_input_search_response.hits:
-                    if completion_hit.input.data.metadata.fields["user_input_id"].string_value == user_input_hit.input.id:
+                    if (
+                        completion_hit.input.data.metadata.fields["user_input_id"].string_value
+                        == user_input_hit.input.id
+                    ):
                         yield completion_hit.input, user_input_hit.input
 
-
     previous_prompts = []
-    
+
     # Check if gen dict is in session state
     if "completion_gen_dict" not in st.session_state:
-        print('completion_gen_dict: ')
         st.session_state.completion_gen_dict = {}
         st.session_state.first_run = True
-        
+
     completion_gen_dict = st.session_state.completion_gen_dict
-    
+
     cols = cycle(st.columns(3))
     for idx, prompt_hit in enumerate(prompt_search_response.hits):
         txt = get_text(prompt_hit.input.data.text.url)
@@ -464,12 +459,13 @@ else:
         caller_id = metadata.get("caller", "zeiler")
         if caller_id == "":
             caller_id = "zeiler"
-            
 
         if len(completion_gen_dict) < len(prompt_search_response.hits):
-            completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(completion_search_response, user_input_search_response, prompt_hit.input.id)
+            completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(
+                completion_search_response, user_input_search_response, prompt_hit.input.id
+            )
+        print(completion_gen_dict)
 
-                
         container.subheader(f"Prompt ({caller_id})", anchor=False)
         container.code(txt)  # metric(label="Prompt", value=txt)
 
@@ -479,32 +475,35 @@ else:
         st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
         st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"] = container.empty()
         st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
-        
+
         if container.button("Next", key=prompt_hit.input.id):
             try:
                 completion_input, user_input = next(completion_gen_dict[prompt_hit.input.id])
-                
+
                 completion_text = get_text(completion_input.data.text.url)
                 user_input_text = get_text(user_input.data.text.url)
                 model_url = completion_input.data.metadata.fields["model"].string_value
-                
+
                 st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"].markdown(f"Generated by {model_url}")
-                st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"].markdown(f"**Input**: {user_input_text}")
+                st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"].markdown(
+                    f"**Input**: {user_input_text}"
+                )
                 st.session_state[f"placeholder_completion{prompt_hit.input.id}"].markdown(completion_text)
             except StopIteration:
-                completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(completion_search_response, user_input_search_response, prompt_hit.input.id)
+                completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(
+                    completion_search_response, user_input_search_response, prompt_hit.input.id
+                )
                 st.warning("No more completions available. Starting from the beginning.")
-        
+
     query_params = st.experimental_get_query_params()
     prompt = ""
     if "prompt" in query_params:
         prompt = query_params["prompt"][0]
-        
+
     st.subheader("Test out new prompt templates with various LLM models")
 
-    model_names = [OPENAI, COHERE, AI21_A, AI21_B] #, AI21_C, AI21_D, AI21_E]
+    model_names = [OPENAI, COHERE, AI21_A, AI21_B]  # , AI21_C, AI21_D, AI21_E]
     models = st.multiselect("Select the model(s) you want to use:", model_names)
-
 
     prompt = st.text_area(
         "Enter your prompt template to test out here:",
@@ -531,30 +530,20 @@ else:
             st.write("Prefix:", prefix)
             st.write("Suffix:", suffix)
 
-        prefix_model = create_prompt_model(
-            "test-prefix-" + uuid.uuid4().hex, prefix, "PREFIX"
-        )
+        prefix_model = create_prompt_model("test-prefix-" + uuid.uuid4().hex, prefix, "PREFIX")
         if DEBUG:
             st.write("PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP")
-            st.json(
-                json_format.MessageToDict(prefix_model, preserving_proto_field_name=True)
-            )
+            st.json(json_format.MessageToDict(prefix_model, preserving_proto_field_name=True))
 
-        suffix_model = create_prompt_model(
-            "test-suffix-" + uuid.uuid4().hex, suffix, "SUFFIX"
-        )
+        suffix_model = create_prompt_model("test-suffix-" + uuid.uuid4().hex, suffix, "SUFFIX")
         if DEBUG:
             st.write("SSSSSSSSSSSSSSSSSSSSSSSSSSSSS")
-            st.json(
-                json_format.MessageToDict(suffix_model, preserving_proto_field_name=True)
-            )
+            st.json(json_format.MessageToDict(suffix_model, preserving_proto_field_name=True))
 
         for model in models:
             workflows.append(create_workflow(prefix_model, suffix_model, model))
 
-        st.success(
-            f"Created {len(workflows)} workflows! Now ready to test it out by inputing some text below"
-        )
+        st.success(f"Created {len(workflows)} workflows! Now ready to test it out by inputing some text below")
         # st.write(workflows)
 
     inp = st.text_input(
@@ -562,86 +551,75 @@ else:
         help="This will be used as the input to the {input} placeholder in your prompt template.",
     )
 
-    if prompt and models and inp:
-        concepts = list_concepts()
-        concept_ids = [c.id for c in concepts]
-        for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
-            if concept.id not in concept_ids:
-                post_concept(concept)
-                st.success(f"Added {concept.id} concept")
+    if st.button("Run"):
+        if prompt and models and inp:
+            concepts = list_concepts()
+            concept_ids = [c.id for c in concepts]
+            for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+                if concept.id not in concept_ids:
+                    post_concept(concept)
+                    st.success(f"Added {concept.id} concept")
 
-        prompt_input = post_input(
-            prompt,
-            concepts=[PROMPT_CONCEPT],
-            metadata={"tags": ["prompt"], "caller": caller_id},
-        )
-
-        # Add the input as an inputs in the app.
-        user_input = post_input(
-            inp,
-            concepts=[INPUT_CONCEPT],
-            metadata={"input_id": prompt_input.id, "caller": caller_id, "tags": ["input"]},
-        )
-        st.markdown(
-            "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
-            unsafe_allow_html=True
-        )
-        completions = []
-        for workflow in workflows:
-            if DEBUG:
-                prefix_prediction = run_model(inp, prefix_model)
-                st.write("Prefix:")
-                st.json(
-                    json_format.MessageToDict(
-                        prefix_prediction, preserving_proto_field_name=True
-                    )
-                )
-
-                suffix_prediction = run_model(inp, suffix_model)
-                st.write("Suffix:")
-                st.json(
-                    json_format.MessageToDict(
-                        suffix_prediction, preserving_proto_field_name=True
-                    )
-                )
-            container = st.container()
-            container.write(prompt.replace("{input}",inp))
-            prediction = run_workflow(inp, workflow)
-            model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
-            # /versions/{workflow.nodes[2].model.model_version.id}"
-            model_url_with_version = (
-                f"{model_url}/versions/{workflow.nodes[2].model.model_version.id}"
-            )
-            container.write(f"Completion from {model_url}:")
-            if DEBUG:
-                st.json(
-                    json_format.MessageToDict(prediction, preserving_proto_field_name=True)
-                )
-            completion = prediction.results[0].outputs[2].data.text.raw
-            container.info(completion)
-            complete_input = post_input(
-                completion,
-                concepts=[COMPLETION_CONCEPT],
-                metadata={
-                    "input_id": prompt_input.id,
-                    "user_input_id": user_input.id,
-                    "tags": ["completion"],
-                    "model": model_url_with_version,
-                    "caller": caller_id,
-                },
-            )
-            completions.append(
-                {
-                    "model": model_url,
-                    "completion": completion.strip(),
-                    "input_id": f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
-                }
+            prompt_input = post_input(
+                prompt,
+                concepts=[PROMPT_CONCEPT],
+                metadata={"tags": ["prompt"], "caller": caller_id},
             )
 
-        st.dataframe(completions)
+            # Add the input as an inputs in the app.
+            user_input = post_input(
+                inp,
+                concepts=[INPUT_CONCEPT],
+                metadata={"input_id": prompt_input.id, "caller": caller_id, "tags": ["input"]},
+            )
+            st.markdown(
+                "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
+                unsafe_allow_html=True,
+            )
+            completions = []
+            for workflow in workflows:
+                if DEBUG:
+                    prefix_prediction = run_model(inp, prefix_model)
+                    st.write("Prefix:")
+                    st.json(json_format.MessageToDict(prefix_prediction, preserving_proto_field_name=True))
 
-        # Cleanup so we don't have tons of junk in this app
-        for workflow in workflows:
-            delete_workflow(workflow)
-        delete_model(prefix_model)
-        delete_model(suffix_model)
+                    suffix_prediction = run_model(inp, suffix_model)
+                    st.write("Suffix:")
+                    st.json(json_format.MessageToDict(suffix_prediction, preserving_proto_field_name=True))
+                container = st.container()
+                container.write(prompt.replace("{input}", inp))
+                prediction = run_workflow(inp, workflow)
+                model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
+                # /versions/{workflow.nodes[2].model.model_version.id}"
+                model_url_with_version = f"{model_url}/versions/{workflow.nodes[2].model.model_version.id}"
+                container.write(f"Completion from {model_url}:")
+                if DEBUG:
+                    st.json(json_format.MessageToDict(prediction, preserving_proto_field_name=True))
+                completion = prediction.results[0].outputs[2].data.text.raw
+                container.info(completion)
+                complete_input = post_input(
+                    completion,
+                    concepts=[COMPLETION_CONCEPT],
+                    metadata={
+                        "input_id": prompt_input.id,
+                        "user_input_id": user_input.id,
+                        "tags": ["completion"],
+                        "model": model_url_with_version,
+                        "caller": caller_id,
+                    },
+                )
+                completions.append(
+                    {
+                        "model": model_url,
+                        "completion": completion.strip(),
+                        "input_id": f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
+                    }
+                )
+
+            st.dataframe(completions)
+
+            # Cleanup so we don't have tons of junk in this app
+            for workflow in workflows:
+                delete_workflow(workflow)
+            delete_model(prefix_model)
+            delete_model(suffix_model)
