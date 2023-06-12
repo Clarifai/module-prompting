@@ -558,7 +558,7 @@ if concepts_ready_bool:
         st.success(f"Created {len(workflows)} workflows! Now ready to test it out by inputing some text below")
         # st.write(workflows)
 
-    inp = st.text_input(
+    inp = st.text_area(
         "Try out your new workflow by providing some input:",
         help="This will be used as the input to the {input} placeholder in your prompt template.",
     )
