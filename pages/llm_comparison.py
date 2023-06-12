@@ -47,8 +47,8 @@ API_INFO = {
     OPENAI: {
         "user_id": "openai",
         "app_id": "chat_completion",
-        "model_id": "chatgpt-3_5-turbo",
-        "version_id": "6b5ffe87f0a94c8e9c45aea0e15e3a99",
+        "model_id": "GPT-3_5-turbo",
+        "version_id": "8ea3880d08a74dc0b39500b99dfaa376",
     },
     AI21_A: {
         "user_id": "ai21",
@@ -404,18 +404,30 @@ def get_text(url):
     return response.text
 
 
-# Check if prompt is a concept in the user's app
-concepts = list_concepts()
-if PROMPT_CONCEPT.id not in [c.id for c in concepts]:
-    st.warning("The prompt concept is not in your app. Please add it by clicking the button below.")
-    if st.button("Add prompt concept"):
-        post_concept(PROMPT_CONCEPT)
-        st.experimental_rerun()
-else:
+# Check if prompt, completion and input are concepts in the user's app
+app_concepts = list_concepts()
+for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+    if concept.id not in [c.id for c in app_concepts]:
+        st.warning(f"The {concept.id} concept is not in your app. Please add it by clicking the button below.")
+        if st.button(f"Add {concept.id} concept"):
+            post_concept(concept)
+            st.experimental_rerun()
+
+app_concepts = list_concepts()
+app_concept_ids = [c.id for c in app_concepts]
+
+# Check if all required concepts are in the app
+concepts_ready_bool = True
+for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+    if concept.id not in app_concept_ids:
+        concepts_ready_bool = False
+        print("good: ", concepts_ready_bool)
+
+# Check if all required concepts are in the app
+if concepts_ready_bool:
     prompt_search_response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
     completion_search_response = search_inputs(concepts=[COMPLETION_CONCEPT], per_page=12)
     user_input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
-    # st.json(json_format.MessageToDict(completion_search_response))
 
     st.markdown(
         "<h2 style='text-align: center; color: #667085;'>Recent prompts from others</h2>",
@@ -586,15 +598,17 @@ else:
                     suffix_prediction = run_model(inp, suffix_model)
                     st.write("Suffix:")
                     st.json(json_format.MessageToDict(suffix_prediction, preserving_proto_field_name=True))
+
                 container = st.container()
                 container.write(prompt.replace("{input}", inp))
                 prediction = run_workflow(inp, workflow)
                 model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
-                # /versions/{workflow.nodes[2].model.model_version.id}"
                 model_url_with_version = f"{model_url}/versions/{workflow.nodes[2].model.model_version.id}"
                 container.write(f"Completion from {model_url}:")
+
                 if DEBUG:
                     st.json(json_format.MessageToDict(prediction, preserving_proto_field_name=True))
+
                 completion = prediction.results[0].outputs[2].data.text.raw
                 container.info(completion)
                 complete_input = post_input(
