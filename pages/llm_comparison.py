@@ -54,13 +54,13 @@ API_INFO = {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-jumbo-instruct",
-        "version_id": "50c2ff53be11407f9c6d4cfca2af1dff",
+        "version_id": "d0b0d58b09c947d38bffc0e65b3b1a1b",
     },
     AI21_B: {
         "user_id": "ai21",
         "app_id": "complete",
         "model_id": "j2-grande-instruct",
-        "version_id": "d4382924b3f04e5ba4efed1bbf04ead1",
+        "version_id": "620672b5d57043dba8f74d5514cb18ed",
     },
     # AI21_C: {
     #     "user_id": "ai21",
