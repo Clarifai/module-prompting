@@ -85,7 +85,7 @@ API_INFO = {
 Examples = [
     {
         "title": "Snoop Doog Summary",
-        "template": """Rewrite the following paragraph as a rap by Snoop Dogg.
+        "template": """Rewrite the following paragraph as a rap by Snoop Dog.
 {input}
 """,
         "categories": ["Long Form", "Creative"],
@@ -117,7 +117,7 @@ caller_id = user.id
 
 
 def create_prompt_model(model_id, prompt, position):
-    if position not in ["PREFIX", "SUFFIX"]:
+    if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
         raise Exception("Position must be PREFIX or SUFFIX")
 
     response = stub.PostModels(
@@ -147,11 +147,11 @@ def create_prompt_model(model_id, prompt, position):
         },
         req.model_versions[0].output_info.params,
     )
-    vresponse = stub.PostModelVersions(req)
-    if vresponse.status.code != status_code_pb2.SUCCESS:
-        raise Exception("PostModelVersions request failed: %r" % vresponse)
+    post_model_versions_response = stub.PostModelVersions(req)
+    if post_model_versions_response.status.code != status_code_pb2.SUCCESS:
+        raise Exception("PostModelVersions request failed: %r" % post_model_versions_response)
 
-    return vresponse.model
+    return post_model_versions_response.model
 
 
 def delete_model(model):
@@ -165,7 +165,7 @@ def delete_model(model):
         raise Exception("DeleteModels request failed: %r" % response)
 
 
-def create_workflow(prefix_model, suffix_model, selected_llm):
+def create_workflow(prompt_model, selected_llm):
     req = service_pb2.PostWorkflowsRequest(
         user_app_id=userDataObject,
         workflows=[
@@ -174,35 +174,17 @@ def create_workflow(prefix_model, suffix_model, selected_llm):
                 + uuid.uuid4().hex[:3],
                 nodes=[
                     resources_pb2.WorkflowNode(
-                        id="prefix",
+                        id="prompt",
                         model=resources_pb2.Model(
-                            id=prefix_model.id,
-                            user_id=prefix_model.user_id,
-                            app_id=prefix_model.app_id,
+                            id=prompt_model.id,
+                            user_id=prompt_model.user_id,
+                            app_id=prompt_model.app_id,
                             model_version=resources_pb2.ModelVersion(
-                                id=prefix_model.model_version.id,
-                                user_id=prefix_model.user_id,
-                                app_id=prefix_model.app_id,
+                                id=prompt_model.model_version.id,
+                                user_id=prompt_model.user_id,
+                                app_id=prompt_model.app_id,
                             ),
                         ),
-                    ),
-                    resources_pb2.WorkflowNode(
-                        id="suffix",
-                        model=resources_pb2.Model(
-                            id=suffix_model.id,
-                            user_id=suffix_model.user_id,
-                            app_id=suffix_model.app_id,
-                            model_version=resources_pb2.ModelVersion(
-                                id=suffix_model.model_version.id,
-                                user_id=suffix_model.user_id,
-                                app_id=suffix_model.app_id,
-                            ),
-                        ),
-                        node_inputs=[
-                            resources_pb2.NodeInput(
-                                node_id="prefix",
-                            )
-                        ],
                     ),
                     resources_pb2.WorkflowNode(
                         id="llm",
@@ -218,7 +200,7 @@ def create_workflow(prefix_model, suffix_model, selected_llm):
                         ),
                         node_inputs=[
                             resources_pb2.NodeInput(
-                                node_id="suffix",
+                                node_id="prompt",
                             )
                         ],
                     ),
@@ -227,8 +209,6 @@ def create_workflow(prefix_model, suffix_model, selected_llm):
         ],
     )
 
-    if DEBUG:
-        st.json(json_format.MessageToDict(req, preserving_proto_field_name=True))
     response = stub.PostWorkflows(req)
     if response.status.code != status_code_pb2.SUCCESS:
         raise Exception("PostWorkflows request failed: %r" % response)
@@ -421,7 +401,6 @@ concepts_ready_bool = True
 for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
     if concept.id not in app_concept_ids:
         concepts_ready_bool = False
-        print("good: ", concepts_ready_bool)
 
 # Check if all required concepts are in the app
 if concepts_ready_bool:
@@ -476,7 +455,6 @@ if concepts_ready_bool:
             completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(
                 completion_search_response, user_input_search_response, prompt_hit.input.id
             )
-        print(completion_gen_dict)
 
         container.subheader(f"Prompt ({caller_id})", anchor=False)
         container.code(txt)  # metric(label="Prompt", value=txt)
@@ -521,52 +499,35 @@ if concepts_ready_bool:
 
     prompt = st.text_area(
         "Enter your prompt template to test out here:",
-        placeholder="Explain {input} to a 5 yeard old.",
+        placeholder="Explain {data.text.raw} to a 5 yeard old.",
         value=prompt,
-        help="You need to place a placeholder {input} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow.",
+        help="You need to place a placeholder {data.text.raw} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow.",
     )
 
     workflows = []
     if prompt and models:
-        if prompt.find("{input}") == -1:
-            st.error("You need to place a placeholder {input} in your prompt template.")
+        if prompt.find("{data.text.raw}") == -1:
+            st.error("You need to place a placeholder {data.text.raw} in your prompt template.")
             st.stop()
 
         if len(models) == 0:
             st.error("You need to select at least one model.")
             st.stop()
 
-        # Get all text before and after the placeholder
-        prefix = prompt[: prompt.find("{input}")]
-        suffix = prompt[prompt.find("{input}") + len("{input}") :]
-
-        if DEBUG:
-            st.write("Prefix:", prefix)
-            st.write("Suffix:", suffix)
-
-        prefix_model = create_prompt_model("test-prefix-" + uuid.uuid4().hex, prefix, "PREFIX")
-        if DEBUG:
-            st.write("PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP")
-            st.json(json_format.MessageToDict(prefix_model, preserving_proto_field_name=True))
-
-        suffix_model = create_prompt_model("test-suffix-" + uuid.uuid4().hex, suffix, "SUFFIX")
-        if DEBUG:
-            st.write("SSSSSSSSSSSSSSSSSSSSSSSSSSSSS")
-            st.json(json_format.MessageToDict(suffix_model, preserving_proto_field_name=True))
+        prompt_model = create_prompt_model("test-prompt-model-" + uuid.uuid4().hex[:3], prompt, "TEMPLATE")
 
         for model in models:
-            workflows.append(create_workflow(prefix_model, suffix_model, model))
+            workflows.append(create_workflow(prompt_model, model))
 
-        st.success(f"Created {len(workflows)} workflows! Now ready to test it out by inputing some text below")
-        # st.write(workflows)
+        st.success(f"Created {len(workflows)} workflows! Now ready to test it out by inputting some text below")
 
-    inp = st.text_area(
+    input = st.text_area(
         "Try out your new workflow by providing some input:",
-        help="This will be used as the input to the {input} placeholder in your prompt template.",
+        help="This will be used as the input to the {data.text.raw} placeholder in your prompt template.",
     )
 
     if st.button("Run"):
-        if prompt and models and inp:
+        if prompt and models and input:
             concepts = list_concepts()
             concept_ids = [c.id for c in concepts]
             for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
@@ -582,7 +543,7 @@ if concepts_ready_bool:
 
             # Add the input as an inputs in the app.
             user_input = post_input(
-                inp,
+                input,
                 concepts=[INPUT_CONCEPT],
                 metadata={"input_id": prompt_input.id, "caller": caller_id, "tags": ["input"]},
             )
@@ -592,26 +553,14 @@ if concepts_ready_bool:
             )
             completions = []
             for workflow in workflows:
-                if DEBUG:
-                    prefix_prediction = run_model(inp, prefix_model)
-                    st.write("Prefix:")
-                    st.json(json_format.MessageToDict(prefix_prediction, preserving_proto_field_name=True))
-
-                    suffix_prediction = run_model(inp, suffix_model)
-                    st.write("Suffix:")
-                    st.json(json_format.MessageToDict(suffix_prediction, preserving_proto_field_name=True))
-
                 container = st.container()
-                container.write(prompt.replace("{input}", inp))
-                prediction = run_workflow(inp, workflow)
-                model_url = f"https://clarifai.com/{workflow.nodes[2].model.user_id}/{workflow.nodes[2].model.app_id}/models/{workflow.nodes[2].model.id}"
-                model_url_with_version = f"{model_url}/versions/{workflow.nodes[2].model.model_version.id}"
+                container.write(prompt.replace("{data.text.raw}", input))
+                prediction = run_workflow(input, workflow)
+                model_url = f"https://clarifai.com/{workflow.nodes[1].model.user_id}/{workflow.nodes[1].model.app_id}/models/{workflow.nodes[1].model.id}"
+                model_url_with_version = f"{model_url}/versions/{workflow.nodes[1].model.model_version.id}"
                 container.write(f"Completion from {model_url}:")
 
-                if DEBUG:
-                    st.json(json_format.MessageToDict(prediction, preserving_proto_field_name=True))
-
-                completion = prediction.results[0].outputs[2].data.text.raw
+                completion = prediction.results[0].outputs[1].data.text.raw
                 container.info(completion)
                 complete_input = post_input(
                     completion,
@@ -637,5 +586,4 @@ if concepts_ready_bool:
             # Cleanup so we don't have tons of junk in this app
             for workflow in workflows:
                 delete_workflow(workflow)
-            delete_model(prefix_model)
-            delete_model(suffix_model)
+            delete_model(prompt_model)
