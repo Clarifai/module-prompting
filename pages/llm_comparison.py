@@ -30,6 +30,7 @@ completions = []
 
 COHERE = "cohere: generate-base"
 OPENAI = "openai: gpt-3.5-turbo"
+OPENAI_4 = "openai: gpt-4"
 AI21_A = "ai21: j2-jumbo-instruct"
 AI21_B = "ai21: j2-grande-instruct"
 # AI21_C = "ai21: j2-jumbo"
@@ -52,6 +53,12 @@ API_INFO = {
         "app_id": "chat_completion",
         "model_id": "GPT-3_5-turbo",
         "version_id": "8ea3880d08a74dc0b39500b99dfaa376",
+    },
+    OPENAI_4: {
+        "user_id": "openai",
+        "app_id": "chat_completion",
+        "model_id": "GPT-4",
+        "version_id": "ad16eda6ac054796bf9f348ab6733c72",
     },
     AI21_A: {
         "user_id": "ai21",
@@ -466,7 +473,7 @@ if concepts_ready_bool:
 
   st.subheader("Test out new prompt templates with various LLM models")
 
-  model_names = [OPENAI, COHERE, AI21_A, AI21_B]  # , AI21_C, AI21_D, AI21_E]
+  model_names = [OPENAI, OPENAI_4, COHERE, AI21_A, AI21_B]  # , AI21_C, AI21_D, AI21_E]
   models = st.multiselect("Select the model(s) you want to use:", model_names)
 
   prompt = st.text_area(
