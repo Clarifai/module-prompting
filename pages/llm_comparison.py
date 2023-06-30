@@ -151,7 +151,7 @@ def create_prompt_model(model_id, prompt, position):
   )
   params = json_format.ParseDict(
       {
-          "prompt": prompt,
+          "prompt_template": prompt,
           "position": position,
       },
       req.model_versions[0].output_info.params,
