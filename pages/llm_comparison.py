@@ -362,10 +362,21 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
   return response
 
 
-def get_text(url):
+# def get_text(url):
+#   """Download the raw text from the url"""
+#   response = requests.get(url)
+#   return response.text
+
+def get_text(auth, url):
   """Download the raw text from the url"""
-  response = requests.get(url)
-  return response.text
+  try:
+    h = {"Authorization": f"Key {auth._pat}"}
+    response = requests.get(url, headers=h)
+    response.encoding = response.apparent_encoding
+  except Exception as e:
+    print(f"Error: {e}")
+    response = None
+  return response.text if response else ""
 
 
 # Check if prompt, completion and input are concepts in the user's app
@@ -428,7 +439,7 @@ completion_gen_dict = st.session_state.completion_gen_dict
 
 cols = cycle(st.columns(3))
 for idx, prompt_hit in enumerate(prompt_search_response.hits):
-  txt = get_text(prompt_hit.input.data.text.url)
+  txt = get_text(auth, prompt_hit.input.data.text.url)
   previous_prompts.append({
       "prompt": txt,
   })
@@ -456,8 +467,8 @@ for idx, prompt_hit in enumerate(prompt_search_response.hits):
     try:
       completion_input, user_input = next(completion_gen_dict[prompt_hit.input.id])
 
-      completion_text = get_text(completion_input.data.text.url)
-      user_input_text = get_text(user_input.data.text.url)
+      completion_text = get_text(auth, completion_input.data.text.url)
+      user_input_text = get_text(auth, user_input.data.text.url)
       model_url = completion_input.data.metadata.fields["model"].string_value
 
       st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"].markdown(
@@ -581,6 +592,9 @@ if prompt and models and input:
     cols[1].markdown(f"Completion: {selected_rows.iloc[1]['model']}")
     diff_viewer.diff_viewer(old_text=old_value, new_text=new_value, lang='none')
 
+st.divider()
+
+st.text("When you're finished experimenting, click the below button to help keep the app clean.")
 cleanup = st.button("Cleanup workflows and prompt models")
 if cleanup:
   # Cleanup so we don't have tons of junk in this app
