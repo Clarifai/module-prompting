@@ -1,18 +1,21 @@
 import hashlib
 import uuid
 from itertools import cycle
-
 import diff_viewer
 import pandas as pd
 import requests
 import streamlit as st
 from clarifai.client.auth.helper import ClarifaiAuthHelper
-from clarifai.client.auth import create_stub
+from clarifai.client.auth import V2Stub, create_stub
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
+from clarifai.client.model import Model #New import to support list_model function
+from clarifai.client.app import App     #New import to support list_model function
+from clarifai.client.input import Inputs
 from google.protobuf.struct_pb2 import Struct
 from google.protobuf import json_format
+from google.protobuf.json_format import MessageToDict
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
@@ -43,6 +46,13 @@ def get_userapp_scopes(stub: V2Stub, userDataObject):
       user_id=userDataObject.user_id, app_id=userDataObject.app_id)
   response = stub.MyScopes(service_pb2.MyScopesRequest(user_app_id=userDataObj))
   return response
+
+def validate_scopes(required_scopes, userapp_scopes):
+  if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
+    return True
+  st.error("You do not have correct scopes for this module")
+  st.stop()
+  return False
 
 local_css("./style.css")
 
@@ -98,7 +108,7 @@ userDataObject = auth.get_user_app_id_proto()
 
 
 all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
-myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
+myscopes_response = get_userapp_scopes(stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
 
 filter_by = dict(
@@ -234,7 +244,6 @@ def create_workflow(prompt_model, selected_llm):
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
   return response.workflows[0]
-
 
 def delete_workflow(workflow_id : str):
   app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
@@ -519,8 +528,8 @@ if prompt and models and input:
       st.success(f"Added {concept.id} concept")
 
   # Add the input as an inputs in the app.
-  id = hashlib.md5(inp.encode("utf-8")).hexdigest() 
-  inp_job_id = post_input(inp,
+  id = hashlib.md5(input.encode("utf-8")).hexdigest() 
+  inp_job_id = post_input(input,
                             id,
                             concepts=["input"],
                             metadata={"tags": ["input"],"caller": caller_id}
@@ -558,7 +567,7 @@ if prompt and models and input:
         "completion":
             completion.strip(),
         "input_id":
-            f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
+            f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{completion_job_id}",
     })
 
   c = pd.DataFrame(completions)
