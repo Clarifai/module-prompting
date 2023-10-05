@@ -3,4 +3,4 @@
 # Clarifai LLM Comparison Module
 This module allows easy comparison and evaluation of many large language models. The module has two main capabilities:
 - It displays old prompts and generations that were tried by users.
-- It allows the selection and simultaneously comparison of many LLMs. 
+- It allows the selection and simultaneously comparison of many LLMs.

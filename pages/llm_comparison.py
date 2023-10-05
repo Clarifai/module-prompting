@@ -1,21 +1,24 @@
 import hashlib
 import uuid
 from itertools import cycle
+
 import diff_viewer
 import pandas as pd
 import requests
 import streamlit as st
-from clarifai.client.auth.helper import ClarifaiAuthHelper
+from clarifai.client.app import \
+    App  # New import to support list_model function
 from clarifai.client.auth import V2Stub, create_stub
+from clarifai.client.auth.helper import ClarifaiAuthHelper
+from clarifai.client.input import Inputs
+from clarifai.client.model import \
+    Model  # New import to support list_model function
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
-from clarifai.client.model import Model #New import to support list_model function
-from clarifai.client.app import App     #New import to support list_model function
-from clarifai.client.input import Inputs
-from google.protobuf.struct_pb2 import Struct
 from google.protobuf import json_format
 from google.protobuf.json_format import MessageToDict
+from google.protobuf.struct_pb2 import Struct
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
@@ -25,14 +28,17 @@ def local_css(file_name):
   with open(file_name) as f:
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
 
+
 def reset_session():
   st.session_state['generated_completions'] = False
+
 
 def load_pat():
   if 'CLARIFAI_PAT' not in st.secrets:
     st.error("You need to set the CLARIFAI_PAT in the secrets.")
     st.stop()
   return st.secrets.CLARIFAI_PAT
+
 
 def get_default_models():
   if 'DEFAULT_MODELS' not in st.secrets:
@@ -41,11 +47,13 @@ def get_default_models():
   models = st.secrets.DEFAULT_MODELS.split(",")
   return models
 
+
 def get_userapp_scopes(stub: V2Stub, userDataObject):
   userDataObj = resources_pb2.UserAppIDSet(
       user_id=userDataObject.user_id, app_id=userDataObject.app_id)
   response = stub.MyScopes(service_pb2.MyScopesRequest(user_app_id=userDataObj))
   return response
+
 
 def validate_scopes(required_scopes, userapp_scopes):
   if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
@@ -53,6 +61,7 @@ def validate_scopes(required_scopes, userapp_scopes):
   st.error("You do not have correct scopes for this module")
   st.stop()
   return False
+
 
 local_css("./style.css")
 
@@ -63,10 +72,9 @@ PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
 INPUT_CONCEPT = resources_pb2.Concept(id="input", value=1.0)
 COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 
+
 ######Using list all functions to get all llm's######
-def list_all_models(
-    filter_by: dict = {},
-) -> Dict[str, Dict[str, str]]:
+def list_all_models(filter_by: dict = {},) -> Dict[str, Dict[str, str]]:
   """
     Iterator for all the LLM community models.
 
@@ -75,12 +83,11 @@ def list_all_models(
 
     Returns:
       API_INFO: dictionary of models information.
-    """  
-  llm_community_models = App().list_models(filter_by=filter_by,
-                                                         only_in_app=False)
-  API_INFO={}
+    """
+  llm_community_models = App().list_models(filter_by=filter_by, only_in_app=False)
+  API_INFO = {}
   for model_name in llm_community_models:
-    model_dict=MessageToDict(model_name.model_info)
+    model_dict = MessageToDict(model_name.model_info)
     try:
       API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(
           user_id=model_dict["userId"],
@@ -89,7 +96,8 @@ def list_all_models(
           version_id=model_dict["modelVersion"]["id"])
     except IndexError:
       pass
-  return API_INFO 
+  return API_INFO
+
 
 Examples = [
     {
@@ -105,7 +113,6 @@ Examples = [
 auth = ClarifaiAuthHelper.from_streamlit(st)
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
-
 
 all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
 myscopes_response = get_userapp_scopes(stub, userDataObject)
@@ -180,7 +187,7 @@ def delete_model(model_id):
   try:
     app.delete_model(model_id=model_id)
   except Exception as e:
-    st.error(f"DeleteModels request failed: {e}" )
+    st.error(f"DeleteModels request failed: {e}")
 
 
 @st.cache_resource
@@ -245,14 +252,15 @@ def create_workflow(prompt_model, selected_llm):
 
   return response.workflows[0]
 
-def delete_workflow(workflow_id : str):
+
+def delete_workflow(workflow_id: str):
   app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
   try:
     app.delete_workflow(workflow_id=workflow_id)
     print(f"Workflow {workflow.id} deleted")
   except Exception as e:
-    st.error(f"DeleteWorkflows request failed: {e}" )
-    
+    st.error(f"DeleteWorkflows request failed: {e}")
+
 
 @st.cache_resource
 def run_workflow(input_text, workflow):
@@ -277,19 +285,17 @@ def run_workflow(input_text, workflow):
 @st.cache_resource
 def run_model(input_text, model):
   m = API_INFO[model]
-  model_obj=Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
+  model_obj = Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
   while True:
     try:
-      response = model_obj.predict_by_bytes(bytes(
-      input_text, 'utf-8'),
-      "text")
+      response = model_obj.predict_by_bytes(bytes(input_text, 'utf-8'), "text")
 
     except Exception as e:
       st.error(f"Model predict error : {e} ")
       st.stop()
 
     break
-  
+
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
@@ -304,17 +310,14 @@ def post_input(txt, id, concepts=[], metadata=None):
   metadata = metadata_struct
   try:
     input_job_id = Inputs(
-      logger_level="ERROR",
-      user_id=userDataObject.user_id,
-      app_id=userDataObject.app_id).upload_from_bytes(
-        id,text_bytes=bytes(txt,'UTF-8'),
-        labels=concepts,
-        metadata=metadata)
-                                                                                                             
+        logger_level="ERROR", user_id=userDataObject.user_id,
+        app_id=userDataObject.app_id).upload_from_bytes(
+            id, text_bytes=bytes(txt, 'UTF-8'), labels=concepts, metadata=metadata)
+
   except Exception as e:
     st.error(f"post input error:{e}")
     #st.stop
-  
+
   return input_job_id
 
 
@@ -368,6 +371,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
 #   """Download the raw text from the url"""
 #   response = requests.get(url)
 #   return response.text
+
 
 def get_text(auth, url):
   """Download the raw text from the url"""
@@ -492,7 +496,8 @@ if "prompt" in query_params:
 st.subheader("Test out new prompt templates with various LLM models")
 
 model_names = sorted(API_INFO.keys())
-models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms, on_change=reset_session)
+models = st.multiselect(
+    "Select the LLMs you want to use:", model_names, default=default_llms, on_change=reset_session)
 
 prompt = st.text_area(
     "Enter your prompt template to test out here:",
@@ -528,12 +533,12 @@ if prompt and models and input:
       st.success(f"Added {concept.id} concept")
 
   # Add the input as an inputs in the app.
-  id = hashlib.md5(input.encode("utf-8")).hexdigest() 
-  inp_job_id = post_input(input,
-                            id,
-                            concepts=["input"],
-                            metadata={"tags": ["input"],"caller": caller_id}
-  )
+  id = hashlib.md5(input.encode("utf-8")).hexdigest()
+  inp_job_id = post_input(
+      input, id, concepts=["input"], metadata={
+          "tags": ["input"],
+          "caller": caller_id
+      })
   st.markdown(
       "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
       unsafe_allow_html=True,
@@ -549,16 +554,16 @@ if prompt and models and input:
     completion = prediction.results[0].outputs[1].data.text.raw
     container.code(completion)
     completion_job_id = post_input(
-          completion,
-          id=hashlib.md5(completion.encode("utf-8")).hexdigest(),
-          concepts=['completion'],
-          metadata={
-              "input_id": id ,
-              "tags": ["completion"],
-              "model": model_url_with_version,
-              "caller": caller_id,
-          },
-      )
+        completion,
+        id=hashlib.md5(completion.encode("utf-8")).hexdigest(),
+        concepts=['completion'],
+        metadata={
+            "input_id": id,
+            "tags": ["completion"],
+            "model": model_url_with_version,
+            "caller": caller_id,
+        },
+    )
     completions.append({
         "select":
             False,
