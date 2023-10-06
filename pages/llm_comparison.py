@@ -6,13 +6,19 @@ import diff_viewer
 import pandas as pd
 import requests
 import streamlit as st
-from clarifai.auth.helper import ClarifaiAuthHelper
-from clarifai.client import create_stub
-from clarifai.listing.lister import ClarifaiResourceLister
+from clarifai.client.app import \
+    App  # New import to support list_model function
+from clarifai.client.auth import V2Stub, create_stub
+from clarifai.client.auth.helper import ClarifaiAuthHelper
+from clarifai.client.input import Inputs
+from clarifai.client.model import \
+    Model  # New import to support list_model function
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
 from google.protobuf import json_format
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.struct_pb2 import Struct
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
@@ -23,74 +29,75 @@ def local_css(file_name):
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
 
 
+def reset_session():
+  st.session_state['generated_completions'] = False
+
+
+def load_pat():
+  if 'CLARIFAI_PAT' not in st.secrets:
+    st.error("You need to set the CLARIFAI_PAT in the secrets.")
+    st.stop()
+  return st.secrets.CLARIFAI_PAT
+
+
+def get_default_models():
+  if 'DEFAULT_MODELS' not in st.secrets:
+    st.error("You need to set the default models in the secrets.")
+    st.stop()
+  models = st.secrets.DEFAULT_MODELS.split(",")
+  return models
+
+
+def get_userapp_scopes(stub: V2Stub, userDataObject):
+  userDataObj = resources_pb2.UserAppIDSet(
+      user_id=userDataObject.user_id, app_id=userDataObject.app_id)
+  response = stub.MyScopes(service_pb2.MyScopesRequest(user_app_id=userDataObj))
+  return response
+
+
+def validate_scopes(required_scopes, userapp_scopes):
+  if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
+    return True
+  st.error("You do not have correct scopes for this module")
+  st.stop()
+  return False
+
+
 local_css("./style.css")
 
 DEBUG = False
 completions = []
 
-COHERE = "cohere: generate-base"
-OPENAI = "openai: gpt-3.5-turbo"
-OPENAI_4 = "openai: gpt-4"
-AI21_A = "ai21: j2-jumbo-instruct"
-AI21_B = "ai21: j2-grande-instruct"
-# AI21_C = "ai21: j2-jumbo"
-# AI21_D = "ai21: j2-grande"
-# AI21_E = "ai21: j2-large"
-
 PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
 INPUT_CONCEPT = resources_pb2.Concept(id="input", value=1.0)
 COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 
-API_INFO = {
-    COHERE: {
-        "user_id": "cohere",
-        "app_id": "generate",
-        "model_id": "generate-base",
-        "version_id": "07bf79a08a45492d8be5c49085244f1c",
-    },
-    OPENAI: {
-        "user_id": "openai",
-        "app_id": "chat_completion",
-        "model_id": "GPT-3_5-turbo",
-        "version_id": "8ea3880d08a74dc0b39500b99dfaa376",
-    },
-    OPENAI_4: {
-        "user_id": "openai",
-        "app_id": "chat_completion",
-        "model_id": "GPT-4",
-        "version_id": "ad16eda6ac054796bf9f348ab6733c72",
-    },
-    AI21_A: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-jumbo-instruct",
-        "version_id": "d0b0d58b09c947d38bffc0e65b3b1a1b",
-    },
-    AI21_B: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-grande-instruct",
-        "version_id": "620672b5d57043dba8f74d5514cb18ed",
-    },
-    # AI21_C: {
-    #     "user_id": "ai21",
-    #     "app_id": "complete",
-    #     "model_id": "j2-jumbo",
-    #     "version_id": "9bb740d588d743228368a53ac61a3768",
-    # },
-    # AI21_D: {
-    #     "user_id": "ai21",
-    #     "app_id": "complete",
-    #     "model_id": "j2-grande",
-    #     "version_id": "60c292033a4643609b9c553a45f34f24",
-    # },
-    # AI21_E: {
-    #     "user_id": "ai21",
-    #     "app_id": "complete",
-    #     "model_id": "j2-large",
-    #     "version_id": "27122459e3eb44eb9f872afee94d71ae",
-    # },
-}
+
+######Using list all functions to get all llm's######
+def list_all_models(filter_by: dict = {},) -> Dict[str, Dict[str, str]]:
+  """
+    Iterator for all the LLM community models.
+
+    Args:
+      filter_by: a dictionary of filters to apply to the list of models.
+
+    Returns:
+      API_INFO: dictionary of models information.
+    """
+  llm_community_models = App().list_models(filter_by=filter_by, only_in_app=False)
+  API_INFO = {}
+  for model_name in llm_community_models:
+    model_dict = MessageToDict(model_name.model_info)
+    try:
+      API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(
+          user_id=model_dict["userId"],
+          app_id=model_dict["appId"],
+          model_id=model_dict["id"],
+          version_id=model_dict["modelVersion"]["id"])
+    except IndexError:
+      pass
+  return API_INFO
+
 
 Examples = [
     {
@@ -106,7 +113,19 @@ Examples = [
 auth = ClarifaiAuthHelper.from_streamlit(st)
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
-lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
+
+all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
+myscopes_response = get_userapp_scopes(stub, userDataObject)
+validate_scopes(all_needed_scopes, myscopes_response.scopes)
+
+filter_by = dict(
+    query="LLM",
+    # model_type_id="text-to-text",
+)
+
+API_INFO = list_all_models(filter_by=filter_by)
+
+default_llms = get_default_models()
 
 st.markdown(
     "<h1 style='text-align: center; color: black;'>LLM Comparison Toolbox 🧰</h1>",
@@ -163,14 +182,12 @@ def create_prompt_model(model_id, prompt, position):
   return post_model_versions_response.model
 
 
-def delete_model(model):
-  response = stub.DeleteModels(
-      service_pb2.DeleteModelsRequest(
-          user_app_id=userDataObject,
-          ids=[model.id],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("DeleteModels request failed: %r" % response)
+def delete_model(model_id):
+  app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
+  try:
+    app.delete_model(model_id=model_id)
+  except Exception as e:
+    st.error(f"DeleteModels request failed: {e}")
 
 
 @st.cache_resource
@@ -236,16 +253,13 @@ def create_workflow(prompt_model, selected_llm):
   return response.workflows[0]
 
 
-def delete_workflow(workflow):
-  response = stub.DeleteWorkflows(
-      service_pb2.DeleteWorkflowsRequest(
-          user_app_id=userDataObject,
-          ids=[workflow.id],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("DeleteWorkflows request failed: %r" % response)
-  else:
+def delete_workflow(workflow_id: str):
+  app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
+  try:
+    app.delete_workflow(workflow_id=workflow_id)
     print(f"Workflow {workflow.id} deleted")
+  except Exception as e:
+    st.error(f"DeleteWorkflows request failed: {e}")
 
 
 @st.cache_resource
@@ -270,19 +284,17 @@ def run_workflow(input_text, workflow):
 
 @st.cache_resource
 def run_model(input_text, model):
-  response = stub.PostModelOutputs(
-      service_pb2.PostModelOutputsRequest(
-          user_app_id=userDataObject,
-          model_id=model.id,
-          inputs=[
-              resources_pb2.Input(
-                  data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-          ],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostModelOutputs request failed: %r" % response)
-  else:
-    print(f"Model {model.id} ran successfully")
+  m = API_INFO[model]
+  model_obj = Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
+  while True:
+    try:
+      response = model_obj.predict_by_bytes(bytes(input_text, 'utf-8'), "text")
+
+    except Exception as e:
+      st.error(f"Model predict error : {e} ")
+      st.stop()
+
+    break
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
@@ -291,29 +303,22 @@ def run_model(input_text, model):
 
 
 @st.cache_resource
-def post_input(txt, concepts=[], metadata=None):
+def post_input(txt, id, concepts=[], metadata=None):
   """Posts input to the API and returns the response."""
-  id = hashlib.md5(txt.encode("utf-8")).hexdigest()
-  req = service_pb2.PostInputsRequest(
-      user_app_id=userDataObject,
-      inputs=[
-          resources_pb2.Input(
-              id=id,
-              data=resources_pb2.Data(text=resources_pb2.Text(raw=txt,),),
-          ),
-      ],
-  )
-  if len(concepts) > 0:
-    req.inputs[0].data.concepts.extend(concepts)
-  if metadata is not None:
-    req.inputs[0].data.metadata.update(metadata)
-  response = stub.PostInputs(req)
-  if response.status.code != status_code_pb2.SUCCESS:
-    if response.inputs[0].status.details.find("duplicate ID") != -1:
-      # If the input already exists, just return the input
-      return req.inputs[0]
-    raise Exception("PostInputs request failed: %r" % response)
-  return response.inputs[0]
+  metadata_struct = Struct()
+  metadata_struct.update(metadata)
+  metadata = metadata_struct
+  try:
+    input_job_id = Inputs(
+        logger_level="ERROR", user_id=userDataObject.user_id,
+        app_id=userDataObject.app_id).upload_from_bytes(
+            id, text_bytes=bytes(txt, 'UTF-8'), labels=concepts, metadata=metadata)
+
+  except Exception as e:
+    st.error(f"post input error:{e}")
+    #st.stop
+
+  return input_job_id
 
 
 def list_concepts():
@@ -366,6 +371,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
 #   """Download the raw text from the url"""
 #   response = requests.get(url)
 #   return response.text
+
 
 def get_text(auth, url):
   """Download the raw text from the url"""
@@ -489,8 +495,9 @@ if "prompt" in query_params:
 
 st.subheader("Test out new prompt templates with various LLM models")
 
-model_names = [OPENAI, OPENAI_4, COHERE, AI21_A, AI21_B]  # , AI21_C, AI21_D, AI21_E]
-models = st.multiselect("Select the model(s) you want to use:", model_names)
+model_names = sorted(API_INFO.keys())
+models = st.multiselect(
+    "Select the LLMs you want to use:", model_names, default=default_llms, on_change=reset_session)
 
 prompt = st.text_area(
     "Enter your prompt template to test out here:",
@@ -525,21 +532,13 @@ if prompt and models and input:
       post_concept(concept)
       st.success(f"Added {concept.id} concept")
 
-  prompt_input = post_input(
-      prompt,
-      concepts=[PROMPT_CONCEPT],
-      metadata={"tags": ["prompt"],
-                "caller": caller_id},
-  )
-
   # Add the input as an inputs in the app.
-  user_input = post_input(
-      input,
-      concepts=[INPUT_CONCEPT],
-      metadata={"input_id": prompt_input.id,
-                "caller": caller_id,
-                "tags": ["input"]},
-  )
+  id = hashlib.md5(input.encode("utf-8")).hexdigest()
+  inp_job_id = post_input(
+      input, id, concepts=["input"], metadata={
+          "tags": ["input"],
+          "caller": caller_id
+      })
   st.markdown(
       "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
       unsafe_allow_html=True,
@@ -554,12 +553,12 @@ if prompt and models and input:
 
     completion = prediction.results[0].outputs[1].data.text.raw
     container.code(completion)
-    complete_input = post_input(
+    completion_job_id = post_input(
         completion,
-        concepts=[COMPLETION_CONCEPT],
+        id=hashlib.md5(completion.encode("utf-8")).hexdigest(),
+        concepts=['completion'],
         metadata={
-            "input_id": prompt_input.id,
-            "user_input_id": user_input.id,
+            "input_id": id,
             "tags": ["completion"],
             "model": model_url_with_version,
             "caller": caller_id,
@@ -573,7 +572,7 @@ if prompt and models and input:
         "completion":
             completion.strip(),
         "input_id":
-            f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
+            f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{completion_job_id}",
     })
 
   c = pd.DataFrame(completions)
