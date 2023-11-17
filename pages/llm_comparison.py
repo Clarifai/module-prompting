@@ -19,6 +19,7 @@ from clarifai_grpc.grpc.api.status import status_code_pb2
 from google.protobuf import json_format
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct
+from typing import Dict
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
@@ -84,7 +85,7 @@ def list_all_models(filter_by: dict = {},) -> Dict[str, Dict[str, str]]:
     Returns:
       API_INFO: dictionary of models information.
     """
-  llm_community_models = App().list_models(filter_by=filter_by, only_in_app=False)
+  llm_community_models = list(App().list_models(filter_by=filter_by, only_in_app=False))
   API_INFO = {}
   for model_name in llm_community_models:
     model_dict = MessageToDict(model_name.model_info)
@@ -162,7 +163,7 @@ def create_prompt_model(model_id, prompt, position):
 
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModels request failed: %r" % response)
-
+  
   req = service_pb2.PostModelVersionsRequest(
       user_app_id=userDataObject,
       model_id=model_id,
@@ -171,7 +172,7 @@ def create_prompt_model(model_id, prompt, position):
   params = json_format.ParseDict(
       {
           "prompt_template": prompt,
-          "position": position,
+          # "position": position,
       },
       req.model_versions[0].output_info.params,
   )
@@ -186,6 +187,7 @@ def delete_model(model_id):
   app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
   try:
     app.delete_model(model_id=model_id)
+    st.success(f"Model {model_id} deleted")
   except Exception as e:
     st.error(f"DeleteModels request failed: {e}")
 
@@ -258,11 +260,13 @@ def delete_workflow(workflow_id: str):
   try:
     app.delete_workflow(workflow_id=workflow_id)
     print(f"Workflow {workflow.id} deleted")
+    st.success(f"Workflow {workflow.id} deleted")
   except Exception as e:
     st.error(f"DeleteWorkflows request failed: {e}")
 
 
 @st.cache_resource
+@st.cache_data
 def run_workflow(input_text, workflow):
   response = stub.PostWorkflowResults(
       service_pb2.PostWorkflowResultsRequest(
@@ -279,7 +283,7 @@ def run_workflow(input_text, workflow):
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
-  return response
+  return response.results[0].outputs[1].data.text.raw
 
 
 @st.cache_resource
@@ -546,12 +550,12 @@ if prompt and models and input:
   for workflow in workflows:
     container = st.container()
     container.write(prompt.replace("{data.text.raw}", input))
-    prediction = run_workflow(input, workflow)
+    predicted_text = run_workflow(input, workflow)
     model_url = f"https://clarifai.com/{workflow.nodes[1].model.user_id}/{workflow.nodes[1].model.app_id}/models/{workflow.nodes[1].model.id}"
     model_url_with_version = f"{model_url}/versions/{workflow.nodes[1].model.model_version.id}"
     container.write(f"Completion from {model_url}:")
 
-    completion = prediction.results[0].outputs[1].data.text.raw
+    completion = predicted_text
     container.code(completion)
     completion_job_id = post_input(
         completion,
@@ -598,5 +602,6 @@ cleanup = st.button("Cleanup workflows and prompt models")
 if cleanup:
   # Cleanup so we don't have tons of junk in this app
   for workflow in workflows:
-    delete_workflow(workflow)
-  delete_model(prompt_model)
+    delete_workflow(workflow.id)
+  delete_model(prompt_model.id)
+  st.cache_resource.clear()
