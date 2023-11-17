@@ -6,13 +6,11 @@ import diff_viewer
 import pandas as pd
 import requests
 import streamlit as st
-from clarifai.client.app import \
-    App  # New import to support list_model function
+from clarifai.client.app import App  # New import to support list_model function
 from clarifai.client.auth import V2Stub, create_stub
 from clarifai.client.auth.helper import ClarifaiAuthHelper
 from clarifai.client.input import Inputs
-from clarifai.client.model import \
-    Model  # New import to support list_model function
+from clarifai.client.model import Model  # New import to support list_model function
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
@@ -20,6 +18,9 @@ from google.protobuf import json_format
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct
 from typing import Dict
+from clarifai.utils.misc import BackoffIterator
+import time
+
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
@@ -268,17 +269,29 @@ def delete_workflow(workflow_id: str):
 @st.cache_resource
 @st.cache_data
 def run_workflow(input_text, workflow):
-  response = stub.PostWorkflowResults(
-      service_pb2.PostWorkflowResultsRequest(
-          user_app_id=userDataObject,
-          workflow_id=workflow.id,
-          inputs=[
-              resources_pb2.Input(
-                  data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-          ],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostWorkflowResults request failed: %r" % response)
+  start_time = time.time()
+  backoff_iterator = BackoffIterator()
+  while True:
+    response = stub.PostWorkflowResults(
+        service_pb2.PostWorkflowResultsRequest(
+            user_app_id=userDataObject,
+            workflow_id=workflow.id,
+            inputs=[
+                resources_pb2.Input(
+                    data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
+            ],
+        ))
+    
+    if response.status.code == status_code_pb2.MODEL_DEPLOYING and \
+      time.time() - start_time < 60 * 10: # 10 minutes
+      st.info(f"Model is still deploying, please wait...")
+      time.sleep(next(backoff_iterator))
+      continue
+
+    if response.status.code != status_code_pb2.SUCCESS:
+      raise Exception(f"PostWorkflowResults failed with response {response.status!r}")
+    else:
+      break
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
