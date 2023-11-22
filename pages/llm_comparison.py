@@ -112,12 +112,31 @@ Examples = [
 ]
 
 # This must be within the display() function.
-auth = ClarifaiAuthHelper.from_streamlit(st)
-stub = create_stub(auth)
-userDataObject = auth.get_user_app_id_proto()
+# auth = ClarifaiAuthHelper.from_streamlit(st)
+# stub = create_stub(auth)
+# userDataObject = auth.get_user_app_id_proto()
+
+# We need to use this post_input and to create and delete models/workflows.
+secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
+pat = load_pat()
+secrets_auth._pat = pat
+secrets_stub = create_stub(secrets_auth)  # installer's stub (PAT)
+
+# Check if the user is logged in. If not, use internal PAT.
+module_query_params = st.experimental_get_query_params()
+if module_query_params.get("pat", "") == "" and module_query_params.get("token", "") == "":
+  unauthorized = True
+else:
+  unauthorized = False
+# Get the auth from secrets first and then override that if a pat is provided as a query param.
+# If no PAT is in the query param then the resulting auth/stub will match the secrets_auth/stub.
+user_or_secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
+# This user_or_secrets_stub wil be used for all the predict calls so we bill the user for those.
+user_or_secrets_stub = create_stub(user_or_secrets_auth)  # user's (viewer's) stub
+userDataObject = user_or_secrets_auth.get_user_app_id_proto()
 
 all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
-myscopes_response = get_userapp_scopes(stub, userDataObject)
+myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
 
 filter_by = dict(
@@ -137,21 +156,24 @@ st.markdown(
 
 def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
-  response = stub.GetUser(req)
+  response = user_or_secrets_stub.GetUser(req)
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("GetUser request failed: %r" % response)
   return response.user
 
 
-user = get_user()
-caller_id = user.id
+if unauthorized:
+  caller_id = "Anonymous"
+else:
+  user = get_user()
+  caller_id = user.id
 
 
 def create_prompt_model(model_id, prompt, position):
   if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
     raise Exception("Position must be PREFIX or SUFFIX")
 
-  response = stub.PostModels(
+  response = secrets_stub.PostModels(
       service_pb2.PostModelsRequest(
           user_app_id=userDataObject,
           models=[
@@ -177,7 +199,7 @@ def create_prompt_model(model_id, prompt, position):
       },
       req.model_versions[0].output_info.params,
   )
-  post_model_versions_response = stub.PostModelVersions(req)
+  post_model_versions_response = secrets_stub.PostModelVersions(req)
   if post_model_versions_response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModelVersions request failed: %r" % post_model_versions_response)
 
@@ -247,7 +269,7 @@ def create_workflow(prompt_model, selected_llm):
       ],
   )
 
-  response = stub.PostWorkflows(req)
+  response = secrets_stub.PostWorkflows(req)
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostWorkflows request failed: %r" % response)
   if DEBUG:
@@ -272,7 +294,7 @@ def run_workflow(input_text, workflow):
   start_time = time.time()
   backoff_iterator = BackoffIterator()
   while True:
-    response = stub.PostWorkflowResults(
+    response = user_or_secrets_stub.PostWorkflowResults(
         service_pb2.PostWorkflowResultsRequest(
             user_app_id=userDataObject,
             workflow_id=workflow.id,
@@ -340,7 +362,7 @@ def post_input(txt, id, concepts=[], metadata=None):
 
 def list_concepts():
   """Lists all concepts in the user's app."""
-  response = stub.ListConcepts(service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
+  response = secrets_stub.ListConcepts(service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("ListConcepts request failed: %r" % response)
   return response.concepts
@@ -348,7 +370,7 @@ def list_concepts():
 
 def post_concept(concept):
   """Posts a concept to the user's app."""
-  response = stub.PostConcepts(
+  response = secrets_stub.PostConcepts(
       service_pb2.PostConceptsRequest(
           user_app_id=userDataObject,
           concepts=[concept],
@@ -376,7 +398,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
     req.searches[0].query.filters.append(
         resources_pb2.Filter(
             annotation=resources_pb2.Annotation(data=resources_pb2.Data(metadata=metadata,))))
-  response = stub.PostAnnotationsSearches(req)
+  response = secrets_stub.PostAnnotationsSearches(req)
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
@@ -462,7 +484,7 @@ completion_gen_dict = st.session_state.completion_gen_dict
 
 cols = cycle(st.columns(3))
 for idx, prompt_hit in enumerate(prompt_search_response.hits):
-  txt = get_text(auth, prompt_hit.input.data.text.url)
+  txt = get_text(secrets_auth, prompt_hit.input.data.text.url)
   previous_prompts.append({
       "prompt": txt,
   })
@@ -490,8 +512,8 @@ for idx, prompt_hit in enumerate(prompt_search_response.hits):
     try:
       completion_input, user_input = next(completion_gen_dict[prompt_hit.input.id])
 
-      completion_text = get_text(auth, completion_input.data.text.url)
-      user_input_text = get_text(auth, user_input.data.text.url)
+      completion_text = get_text(secrets_auth, completion_input.data.text.url)
+      user_input_text = get_text(secrets_auth, user_input.data.text.url)
       model_url = completion_input.data.metadata.fields["model"].string_value
 
       st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"].markdown(
