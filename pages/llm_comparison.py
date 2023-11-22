@@ -169,6 +169,7 @@ else:
   caller_id = user.id
 
 
+@st.cache_resource
 def create_prompt_model(model_id, prompt, position):
   if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
     raise Exception("Position must be PREFIX or SUFFIX")
@@ -180,6 +181,7 @@ def create_prompt_model(model_id, prompt, position):
               resources_pb2.Model(
                   id=model_id,
                   model_type_id="prompter",
+                  visibility=resources_pb2.Visibility(gettable=resources_pb2.Visibility.Gettable.PUBLIC)
               ),
           ],
       ))
@@ -190,7 +192,11 @@ def create_prompt_model(model_id, prompt, position):
   req = service_pb2.PostModelVersionsRequest(
       user_app_id=userDataObject,
       model_id=model_id,
-      model_versions=[resources_pb2.ModelVersion(output_info=resources_pb2.OutputInfo())],
+      model_versions=[resources_pb2.ModelVersion(
+            output_info=resources_pb2.OutputInfo(),
+            visibility=resources_pb2.Visibility(gettable=resources_pb2.Visibility.Gettable.PUBLIC)
+          )
+      ],
   )
   params = json_format.ParseDict(
       {
@@ -228,6 +234,7 @@ def create_workflows(prompt, models):
   return prompt_model, workflows
 
 
+@st.cache_resource
 def create_workflow(prompt_model, selected_llm):
   req = service_pb2.PostWorkflowsRequest(
       user_app_id=userDataObject,
@@ -265,6 +272,7 @@ def create_workflow(prompt_model, selected_llm):
                       node_inputs=[resources_pb2.NodeInput(node_id="prompt",)],
                   ),
               ],
+              visibility=resources_pb2.Visibility(gettable=resources_pb2.Visibility.Gettable.PUBLIC),
           ),
       ],
   )
