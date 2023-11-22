@@ -22,6 +22,8 @@ from clarifai.utils.misc import BackoffIterator
 import time
 
 
+# NOTE: Python SDK will be used when the update to take PAT as input is released. 
+
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
 
@@ -60,8 +62,6 @@ def get_userapp_scopes(stub: V2Stub, userDataObject):
 def validate_scopes(required_scopes, userapp_scopes):
   if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
     return True
-  st.error("You do not have correct scopes for this module")
-  st.stop()
   return False
 
 
@@ -135,9 +135,20 @@ user_or_secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 user_or_secrets_stub = create_stub(user_or_secrets_auth)  # user's (viewer's) stub
 userDataObject = user_or_secrets_auth.get_user_app_id_proto()
 
-all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
+
+needed_read_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
-validate_scopes(all_needed_scopes, myscopes_response.scopes)
+if not validate_scopes(needed_read_scopes, myscopes_response.scopes):
+  st.error("You do not have correct scopes for this module")
+  st.stop()
+
+# If the user has these write scopes, it means that the user has installed this module in his app. 
+# Note: this step is necessary as in secrets.toml, we have PAT for from Clarifai org's account which won't have write scopes for user's installed module.
+needed_write_scopes = ['Models:Add', 'Workflows:Add', 'Concepts:Add', 'Models:Delete', 'Workflows:Delete']
+if validate_scopes(needed_write_scopes, myscopes_response.scopes):
+  secrets_auth = user_or_secrets_auth
+  secrets_stub = user_or_secrets_stub
+
 
 filter_by = dict(
     query="LLM",
@@ -169,6 +180,19 @@ else:
   caller_id = user.id
 
 
+# Created models/workflows will be public if the app is public and private if the app is private. 
+# If the app is public, it means it is meant for other users to use and hence the models/workflows created by the user should be public as well for them to be accessible.
+def get_app_visibility():
+  visibility_dict = {'50': resources_pb2.Visibility.Gettable.PUBLIC, '10': resources_pb2.Visibility.Gettable.PRIVATE}
+  req = service_pb2.GetAppRequest(user_app_id=userDataObject)
+  response = secrets_stub.GetApp(req)
+  if response.status.code != status_code_pb2.SUCCESS:
+    raise Exception("GetApp request failed: %r" % response)
+  return visibility_dict[str(response.app.visibility.gettable)]
+
+app_visibility = get_app_visibility()
+
+
 @st.cache_resource
 def create_prompt_model(model_id, prompt, position):
   if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
@@ -181,7 +205,7 @@ def create_prompt_model(model_id, prompt, position):
               resources_pb2.Model(
                   id=model_id,
                   model_type_id="prompter",
-                  visibility=resources_pb2.Visibility(gettable=resources_pb2.Visibility.Gettable.PUBLIC)
+                  visibility=resources_pb2.Visibility(gettable=app_visibility)
               ),
           ],
       ))
@@ -194,7 +218,7 @@ def create_prompt_model(model_id, prompt, position):
       model_id=model_id,
       model_versions=[resources_pb2.ModelVersion(
             output_info=resources_pb2.OutputInfo(),
-            visibility=resources_pb2.Visibility(gettable=resources_pb2.Visibility.Gettable.PUBLIC)
+            visibility=resources_pb2.Visibility(gettable=app_visibility)
           )
       ],
   )
@@ -213,12 +237,14 @@ def create_prompt_model(model_id, prompt, position):
 
 
 def delete_model(model_id):
-  app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
-  try:
-    app.delete_model(model_id=model_id)
-    st.success(f"Model {model_id} deleted")
-  except Exception as e:
-    st.error(f"DeleteModels request failed: {e}")
+  response = secrets_stub.DeleteModels(
+      service_pb2.DeleteModelsRequest(
+          user_app_id=userDataObject,
+          ids=[model_id],
+      ))
+  if response.status.code != status_code_pb2.SUCCESS:
+    raise Exception("DeleteModels request failed: %r" % response)
+  st.success(f"Deleted model {model_id}")
 
 
 @st.cache_resource
@@ -272,7 +298,7 @@ def create_workflow(prompt_model, selected_llm):
                       node_inputs=[resources_pb2.NodeInput(node_id="prompt",)],
                   ),
               ],
-              visibility=resources_pb2.Visibility(gettable=resources_pb2.Visibility.Gettable.PUBLIC),
+              visibility=resources_pb2.Visibility(gettable=app_visibility),
           ),
       ],
   )
@@ -287,13 +313,15 @@ def create_workflow(prompt_model, selected_llm):
 
 
 def delete_workflow(workflow_id: str):
-  app = App(app_id=userDataObject.app_id, user_id=userDataObject.user_id)
-  try:
-    app.delete_workflow(workflow_id=workflow_id)
-    print(f"Workflow {workflow.id} deleted")
-    st.success(f"Workflow {workflow.id} deleted")
-  except Exception as e:
-    st.error(f"DeleteWorkflows request failed: {e}")
+  response = secrets_stub.DeleteWorkflows(
+      service_pb2.DeleteWorkflowsRequest(
+          user_app_id=userDataObject,
+          ids=[workflow.id],
+      ))
+  if response.status.code != status_code_pb2.SUCCESS:
+    raise Exception("DeleteWorkflows request failed: %r" % response)
+  else:
+    st.success(f"Deleted workflow {workflow_id}")
 
 
 @st.cache_resource
