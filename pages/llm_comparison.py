@@ -282,12 +282,14 @@ def create_workflows(prompt, models):
   workflows = []
   try:
     prompt_model = create_prompt_model(prompt)
+    for model in models:
+      workflows.append(create_workflow(prompt_model, model))
   except Exception as e:
     st.session_state.current_model_id = -1
     prompt_model = create_prompt_model(prompt)
     st.session_state.current_model_id = None
-  for model in models:
-    workflows.append(create_workflow(prompt_model, model))
+    for model in models:
+      workflows.append(create_workflow(prompt_model, model))
 
   st.success(
       f"Created {len(workflows)} workflows! Now ready to test it out!")
