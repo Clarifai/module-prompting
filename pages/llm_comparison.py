@@ -280,7 +280,12 @@ def delete_model(model_id):
 
 def create_workflows(prompt, models):
   workflows = []
-  prompt_model = create_prompt_model(prompt)
+  try:
+    prompt_model = create_prompt_model(prompt)
+  except Exception as e:
+    st.session_state.current_model_id = -1
+    prompt_model = create_prompt_model(prompt)
+    st.session_state.current_model_id = None
   for model in models:
     workflows.append(create_workflow(prompt_model, model))
 
