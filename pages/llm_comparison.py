@@ -34,7 +34,7 @@ def local_css(file_name):
 
 
 def reset_session():
-  st.session_state['generated_completions'] = False
+  st.session_state['clicked_completions'] = False
 
 
 def load_pat():
@@ -64,6 +64,16 @@ def validate_scopes(required_scopes, userapp_scopes):
     return True
   return False
 
+
+def init_sessions():
+  if 'clicked_completions' not in st.session_state:
+    st.session_state['clicked_completions'] = False
+  if 'current_model_id' not in st.session_state:
+    st.session_state['current_model_id'] = None
+  if 'current_workflow_id' not in st.session_state:
+    st.session_state['current_workflow_id'] = None
+
+init_sessions()
 
 local_css("./style.css")
 
@@ -193,11 +203,32 @@ def get_app_visibility():
 app_visibility = get_app_visibility()
 
 
-@st.cache_resource
-def create_prompt_model(model_id, prompt, position):
-  if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
-    raise Exception("Position must be PREFIX or SUFFIX")
+def validate_workflow(cache):
+  wkfl_id = st.session_state.get("current_workflow_id")
+  if wkfl_id is None:
+    return True
+  if wkfl_id == -1:
+    return False
+  resp = secrets_stub.GetWorkflow(service_pb2.GetWorkflowRequest(user_app_id=userDataObject, workflow_id=st.session_state.current_workflow_id))
+  if resp.status.code != status_code_pb2.SUCCESS:
+    return False
+  return True
 
+def validate_model(cache):
+  model_id = st.session_state.get("current_model_id")
+  if model_id is None:
+    return True
+  if model_id == -1:
+    return False
+  resp = secrets_stub.GetModel(service_pb2.GetModelRequest(user_app_id=userDataObject, model_id=st.session_state.current_model_id))
+  if resp.status.code != status_code_pb2.SUCCESS:
+    return False
+  return True
+
+
+@st.cache_resource(validate=validate_model)
+def create_prompt_model(prompt):
+  model_id = "test-prompt-model-" + uuid.uuid4().hex[:3]
   response = secrets_stub.PostModels(
       service_pb2.PostModelsRequest(
           user_app_id=userDataObject,
@@ -247,21 +278,23 @@ def delete_model(model_id):
   st.success(f"Deleted model {model_id}")
 
 
-@st.cache_resource
 def create_workflows(prompt, models):
   workflows = []
-  prompt_model = create_prompt_model("test-prompt-model-" + uuid.uuid4().hex[:3], prompt,
-                                     "TEMPLATE")
+  prompt_model = create_prompt_model(prompt)
   for model in models:
     workflows.append(create_workflow(prompt_model, model))
 
   st.success(
-      f"Created {len(workflows)} workflows! Now ready to test it out by inputting some text below")
+      f"Created {len(workflows)} workflows! Now ready to test it out!")
   return prompt_model, workflows
+  
+    
 
-
-@st.cache_resource
+@st.cache_resource(validate=validate_workflow)
 def create_workflow(prompt_model, selected_llm):
+  metadata = {'llm': selected_llm}
+  metadata_struct = Struct()
+  metadata_struct.update(metadata)
   req = service_pb2.PostWorkflowsRequest(
       user_app_id=userDataObject,
       workflows=[
@@ -269,6 +302,7 @@ def create_workflow(prompt_model, selected_llm):
               id=
               f"test-workflow-{API_INFO[selected_llm]['user_id']}-{API_INFO[selected_llm]['model_id']}-"
               + uuid.uuid4().hex[:3],
+              metadata = metadata_struct,
               nodes=[
                   resources_pb2.WorkflowNode(
                       id="prompt",
@@ -357,24 +391,35 @@ def run_workflow(input_text, workflow):
   return response.results[0].outputs[1].data.text.raw
 
 
-@st.cache_resource
-def run_model(input_text, model):
-  m = API_INFO[model]
-  model_obj = Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
-  while True:
-    try:
-      response = model_obj.predict_by_bytes(bytes(input_text, 'utf-8'), "text")
+def get_prompt_model(pmodel):
+  resp = secrets_stub.GetModel(service_pb2.GetModelRequest(user_app_id=userDataObject, model_id=pmodel.id))
+  if resp.status.code != status_code_pb2.SUCCESS:
+    return False
+  return True
 
-    except Exception as e:
-      st.error(f"Model predict error : {e} ")
-      st.stop()
+def get_workflow(wkfl):
+  resp = secrets_stub.GetWorkflow(service_pb2.GetWorkflowRequest(user_app_id=userDataObject, workflow_id=wkfl.id))
+  if resp.status.code != status_code_pb2.SUCCESS:
+    return False
+  return True
 
-    break
-
-  if DEBUG:
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-
-  return response
+def check_model_workflows(prompt_model, workflows, prompt, models):
+  if not get_prompt_model(prompt_model):
+    st.session_state.current_model_id = -1
+    st.session_state.current_workflow_id = -1
+    prompt_model, new_wkfls = create_workflows(prompt, models)
+  else:
+    new_wkfls = []
+    for w in workflows:
+      if not get_workflow(w):
+        st.session_state.current_workflow_id = -1
+        workflows.append(create_workflow(prompt_model, w.metadata.fields['llm'].string_value))
+        st.session_state.current_workflow_id = None
+      else:
+        new_wkfls.append(w)
+  st.session_state.current_model_id = None
+  st.session_state.current_workflow_id = None
+  return prompt_model, new_wkfls
 
 
 @st.cache_resource
@@ -386,8 +431,7 @@ def post_input(txt, id, concepts=[], metadata=None):
   try:
     input_job_id = Inputs(
         logger_level="ERROR", user_id=userDataObject.user_id,
-        app_id=userDataObject.app_id).upload_from_bytes(
-            id, text_bytes=bytes(txt, 'UTF-8'), labels=concepts, metadata=metadata)
+        app_id=userDataObject.app_id, pat=secrets_auth._pat).upload_from_bytes(id, text_bytes=bytes(txt, 'UTF-8'), labels=concepts, metadata=metadata)
 
   except Exception as e:
     st.error(f"post input error:{e}")
@@ -578,6 +622,7 @@ prompt = st.text_area(
     "Enter your prompt template to test out here:",
     placeholder="Explain {data.text.raw} to a 5 yeard old.",
     value=prompt,
+    on_change=reset_session,
     help=
     "You need to place a placeholder {data.text.raw} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow.",
 )
@@ -595,11 +640,16 @@ if prompt and models:
 
 input = st.text_area(
     "Try out your new workflow by providing some input:",
+    on_change=reset_session,
     help=
     "This will be used as the input to the {data.text.raw} placeholder in your prompt template.",
 )
 
-if prompt and models and input:
+completion_button = st.button("Generate completions")
+if completion_button:
+  st.session_state.clicked_completions = True
+
+if st.session_state.get('clicked_completions') and prompt and models and input:
   concepts = list_concepts()
   concept_ids = [c.id for c in concepts]
   for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
@@ -618,10 +668,14 @@ if prompt and models and input:
       "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
       unsafe_allow_html=True,
   )
+
+  prompt_model, workflows = check_model_workflows(prompt_model, workflows, prompt, models)
+
   for workflow in workflows:
     container = st.container()
     container.write(prompt.replace("{data.text.raw}", input))
     predicted_text = run_workflow(input, workflow)
+
     model_url = f"https://clarifai.com/{workflow.nodes[1].model.user_id}/{workflow.nodes[1].model.app_id}/models/{workflow.nodes[1].model.id}"
     model_url_with_version = f"{model_url}/versions/{workflow.nodes[1].model.model_version.id}"
     container.write(f"Completion from {model_url}:")
@@ -675,4 +729,3 @@ if cleanup:
   for workflow in workflows:
     delete_workflow(workflow.id)
   delete_model(prompt_model.id)
-  st.cache_resource.clear()
